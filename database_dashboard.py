@@ -251,7 +251,7 @@ def prices_page_mobile():
 
     # If there's old data in session state, plot it before querying new data
     if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
-        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder, st.session_state.selected_symbol)
+        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
 
     # Move form to sidebar
     with st.form(key='my_form'):
@@ -281,7 +281,7 @@ def prices_page_mobile():
                 )
                 if len(data) > 0:
                     st.session_state.graph_data = data  # Update the data in the session state
-                    plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder, st.session_state.selected_symbol)  # Re-plot with new data
+                    plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
                 else:
                     st.warning("Please select an older start date.")
             except Exception as e:
@@ -290,7 +290,7 @@ def prices_page_mobile():
 
     elif hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
         # If the form hasn't been submitted in this rerun but there's stored data, plot the stored data
-        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder, st.session_state.selected_symbol)
+        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
 
 
 def bots_page():
