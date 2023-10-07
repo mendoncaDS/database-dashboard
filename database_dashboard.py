@@ -34,6 +34,14 @@ FREQUENCY_MAPPING = {
     "1 month": "1M"
 }
 
+def get_human_readable_freq(internal_freq):
+    for key, value in FREQUENCY_MAPPING.items():
+        if value == internal_freq:
+            return key
+    return None  # In case no match is found
+
+MIN_DATETIME = datetime(2017, 9, 1).replace(tzinfo=pytz.UTC)  # The oldest date from which we can query data
+
 # Initialization
 if 'dataframes_dict' not in st.session_state:
     st.session_state.dataframes_dict = {}
@@ -72,6 +80,10 @@ def plot_in_placeholder(series, placeholder):
 
     # Create interactive plot using plotly.express
     fig = px.line(df, x='Date', y='Value')
+    
+    # Check if logarithmic scale is selected
+    if st.session_state.get('log_scale', False):
+        fig.update_yaxes(type="log")
 
     # Update the layout to adjust the height and width
     fig.update_layout(autosize=True,height=650)  # You can adjust the width and height values as needed
@@ -89,12 +101,16 @@ def symbol_selector():
     # Default to "BTCUSDT" if not already selected
     default_symbol_index = unique_symbols.index("BTCUSDT") if "BTCUSDT" in unique_symbols else 0
 
+    
+    
     selected_symbol = st.selectbox(
         "Select a Symbol",
         unique_symbols,
         index=default_symbol_index,
         key='selected_symbol_key'
     )
+
+        
 
     # Update the session state with the selected symbol
     st.session_state.selected_symbol = selected_symbol
@@ -168,6 +184,7 @@ def load_symbol_data(symbol, start, end_datetime):
     Load data for the given symbol from the specified start datetime to the specified end datetime.
     Always fetches 1-minute granularity data.
     """
+    start = max(start, MIN_DATETIME)  # Ensure the start date isn't before September 1st, 2017
     start = start.replace(tzinfo=pytz.UTC)
     end_datetime = end_datetime.replace(tzinfo=pytz.UTC)
 
@@ -274,11 +291,6 @@ def main():
 
 def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time):
     
-    # Check if the data length is more than one million entries
-    if len(st.session_state.dataframes_dict.get(st.session_state.selected_symbol, {})) > 1_000_000:
-        st.warning("The data is too big for plotting. Please select a narrower time period or a broader time frame.")
-        return
-
     # Initialize most_recent_dt to None
     most_recent_dt = None
     
@@ -294,29 +306,44 @@ def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_date
     
     if selected_datetime and selected_datetime > most_recent_dt:
         st.warning("Please select a date that's before the most recent data available.")
-    else:
-        start_time = t.time()  # Start timing here
-        try:
+        return
+
+    # If the selected date is older than MIN_DATETIME, adjust it to MIN_DATETIME
+    if selected_datetime < MIN_DATETIME:
+        selected_datetime = MIN_DATETIME
+
+    # Check if the required data exists locally
+    if st.session_state.selected_symbol in st.session_state.dataframes_dict:
+        earliest_timestamp_local = st.session_state.dataframes_dict[st.session_state.selected_symbol].index.min()
+        
+        if earliest_timestamp_local <= selected_datetime:
+            data = st.session_state.dataframes_dict[st.session_state.selected_symbol].loc[selected_datetime:end_datetime]
+        else:
             data = load_symbol_data(st.session_state.selected_symbol, selected_datetime, end_datetime)
-            if len(data) > 0:
-                # Resample data to the selected frequency
-                resampled_data = resample_data(data, st.session_state.selected_freq)
-                
-                graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {st.session_state.selected_freq}")
-                st.session_state.graph_data = resampled_data  # Update the data in the session state
-                plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
-            else:
-                st.warning("Please select an older start date.")
-        except Exception as e:
-            st.warning("Something went wrong.")
-            st.error(f"PYTHON ERROR: {e}")
+
+    else:
+        data = load_symbol_data(st.session_state.selected_symbol, selected_datetime, end_datetime)
+
+    # Processing and plotting the data
+    if len(data) > 0:
+        # Resample data to the selected frequency
+        resampled_data = resample_data(data, st.session_state.selected_freq)
+        if len(resampled_data) > 1000000:
+            st.warning("The data is too big for plotting. Please select a narrower time period or a broader time frame.")
+            return
+        
+        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {st.session_state.selected_freq}")
+        st.session_state.graph_data = resampled_data  # Update the data in the session state
+        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
+    else:
+        st.warning("Please select an older start date.")
 
     # Mark form as submitted
     st.session_state.form_submitted = True
 
     # Calculate and display the time taken after plotting
     end_time = t.time()
-    st.write(f"Data loaded and plotted in {end_time - start_time:.2f} seconds.")
+    st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
 
     
 def prices_page_desktop():
@@ -352,7 +379,11 @@ def prices_page_desktop():
         end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
 
         # The submit button for the form
-        submit_button = st.form_submit_button(label='Load Data')
+        col1, col2 = st.columns(2)
+        with col1:
+            submit_button = st.form_submit_button(label='Load Data')
+        with col2:    
+            st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
 
     # Fetch and plot the data using the selected start and end timestamps
     if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
@@ -361,9 +392,10 @@ def prices_page_desktop():
 
 
 
-    # Update the graph_name_placeholder with the current symbol after the form is processed
+    # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
     if st.session_state.selected_symbol is not None:
-        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol}")
+        human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
     else:
         graph_name_placeholder.write("💲")
 
@@ -372,6 +404,15 @@ def prices_page_mobile():
     graph_name_placeholder = st.empty()
     graph_placeholder = st.empty()
 
+    # Inject custom CSS to adjust column widths
+    st.write('''<style>
+    [data-testid="column"] {
+        width: calc(33.3333% - 1rem) !important;
+        flex: 1 1 calc(33.3333% - 1rem) !important;
+        min-width: calc(33% - 1rem) !important;
+    }
+    </style>''', unsafe_allow_html=True)
+
     # If there's old data in session state, plot it before querying new data
     if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
         plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
@@ -379,23 +420,42 @@ def prices_page_mobile():
     # Move form to main area
     with st.form(key='my_form'):
         st.title("Data to fetch:")
+        
+        # Symbol and Frequency selectors inside the form
         symbol_selector()
         frequency_selector()
-        selected_datetime = datetime_selector()
-        submit_button = st.form_submit_button(label='Load Data')
 
-    selected_datetime = selected_datetime.replace(tzinfo=pytz.UTC)
-    end_datetime = datetime.now().replace(tzinfo=pytz.UTC)  # Set the end datetime as the current time
+        # Set default value for date selector to 6 months ago
+        six_months_ago = datetime.today() - pd.DateOffset(months=6)
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_date = st.date_input("Select Start Date", six_months_ago)
+        with col2:
+            # End Time Selector
+            end_date = st.date_input("Select End Date", datetime.now())
+
+        # Convert the selected_date and end_date to datetime objects and localize to UTC
+        selected_datetime = datetime.combine(selected_date, time(0, 0)).replace(tzinfo=pytz.UTC)
+        end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
+
+        # Adjusting column widths to force side-by-side layout
+        col1, col2 = st.columns([1,1])
+        with col1:
+            submit_button = st.form_submit_button(label='Load Data')
+        with col2:
+            st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
 
     # Check if the form was submitted
-    if submit_button:
+    if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
         start_time = t.time()  # Start timing here
         fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time)
     elif hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
         plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
 
+    # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
     if st.session_state.selected_symbol is not None:
-        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol}")
+        human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
     else:
         graph_name_placeholder.write("💲")
 
