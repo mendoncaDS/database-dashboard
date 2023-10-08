@@ -62,8 +62,12 @@ def resample_data(data, freq):
     }
     resampled = data.resample(freq).apply(agg_dict)
     
-    # Remove the last entry to ensure only complete candles are displayed
-    return resampled.iloc[:-1]
+    # Remove the last entry to ensure only complete candles are displayed for resampled data.
+    # For 1m data, no need to trim as it's already done by the updater.
+    if freq != "1T":
+        return resampled.iloc[:-1]
+    else:
+        return resampled
 
 
 def plot_in_placeholder(series, placeholder):
@@ -307,6 +311,16 @@ def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_date
     if selected_datetime and selected_datetime > most_recent_dt:
         st.warning("Please select a date that's before the most recent data available.")
         return
+
+    # If the most recent data in the database is newer than the most recent data we have locally, fetch it
+    if most_recent_dt and (st.session_state.selected_symbol not in st.session_state.dataframes_dict or most_recent_dt > st.session_state.dataframes_dict[st.session_state.selected_symbol].index.max()):
+        new_data = load_symbol_data(st.session_state.selected_symbol, most_recent_dt, end_datetime)
+        # If data is already present for this symbol, append the new data
+        if st.session_state.selected_symbol in st.session_state.dataframes_dict:
+            st.session_state.dataframes_dict[st.session_state.selected_symbol] = pd.concat([st.session_state.dataframes_dict[st.session_state.selected_symbol], new_data])
+        else:
+            st.session_state.dataframes_dict[st.session_state.selected_symbol] = new_data
+
 
     # If the selected date is older than MIN_DATETIME, adjust it to MIN_DATETIME
     if selected_datetime < MIN_DATETIME:
