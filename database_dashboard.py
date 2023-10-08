@@ -1,4 +1,3 @@
-
 import os
 import pytz
 
@@ -8,7 +7,7 @@ import streamlit as st
 import plotly.express as px
 
 from dotenv import load_dotenv
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from sqlalchemy import create_engine, text
 
 # Environment setup
@@ -61,7 +60,10 @@ def resample_data(data, freq):
         'close': 'last',
         'volume': 'sum'
     }
-    return data.resample(freq).apply(agg_dict)
+    resampled = data.resample(freq).apply(agg_dict)
+    
+    # Remove the last entry to ensure only complete candles are displayed
+    return resampled.iloc[:-1]
 
 
 def plot_in_placeholder(series, placeholder):
@@ -162,12 +164,10 @@ def symbol_freq_selector():
 
 def datetime_selector():
     # Date and Hour Selector
-    #col1, col2, col3 = st.columns(3)
     selected_date = st.date_input("Select a Date", datetime.now())
     selected_hour = st.slider("Select an Hour", 0, 23, 0) # Slider from 0 to 23 for hours
     selected_minute = st.slider("Select a Minute", 0, 59, 0) # Slider from 0 to 23 for hours
     selected_datetime = datetime.combine(selected_date, time(hour=selected_hour, minute=selected_minute))
-
     return selected_datetime
 
 
@@ -360,6 +360,7 @@ def prices_page_desktop():
         plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
 
     st.sidebar.title("Data to fetch:")
+
     with st.sidebar.form(key='my_form'):
         # Symbol and Frequency selectors inside the form
         symbol_selector()
@@ -367,22 +368,25 @@ def prices_page_desktop():
 
         # Set default value for date selector to 6 months ago
         six_months_ago = datetime.today() - pd.DateOffset(months=6)
+        
         col1, col2 = st.columns(2)
         with col1:
             selected_date = st.date_input("Select Start Date", six_months_ago)
         with col2:
             # End Time Selector
-            end_date = st.date_input("Select End Date", datetime.now())
+            end_date_default = datetime.utcnow() + timedelta(days=1)
+            end_date = st.date_input("Select End Date", end_date_default)
 
         # Convert the selected_date and end_date to datetime objects and localize to UTC
         selected_datetime = datetime.combine(selected_date, time(0, 0)).replace(tzinfo=pytz.UTC)
-        end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
+        current_time = datetime.utcnow().time()
+        end_datetime = datetime.combine(end_date, current_time).replace(tzinfo=pytz.UTC)
 
         # The submit button for the form
         col1, col2 = st.columns(2)
         with col1:
             submit_button = st.form_submit_button(label='Load Data')
-        with col2:    
+        with col2:
             st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
 
     # Fetch and plot the data using the selected start and end timestamps
@@ -427,12 +431,14 @@ def prices_page_mobile():
 
         # Set default value for date selector to 6 months ago
         six_months_ago = datetime.today() - pd.DateOffset(months=6)
+        
         col1, col2 = st.columns(2)
         with col1:
             selected_date = st.date_input("Select Start Date", six_months_ago)
         with col2:
             # End Time Selector
-            end_date = st.date_input("Select End Date", datetime.now())
+            end_date_default = datetime.utcnow() + timedelta(days=1)
+            end_date = st.date_input("Select End Date", end_date_default)
 
         # Convert the selected_date and end_date to datetime objects and localize to UTC
         selected_datetime = datetime.combine(selected_date, time(0, 0)).replace(tzinfo=pytz.UTC)
