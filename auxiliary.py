@@ -1,9 +1,12 @@
+
 # External Library Imports
 import pytz
+
 import time as t
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+
 from sqlalchemy import text
 
 # Local Module Imports
@@ -51,7 +54,6 @@ def load_symbol_data(symbol, start, end_datetime, engine):
             df = st.session_state.dataframes_dict[symbol]
     else:
         with engine.connect() as connection:
-            print("CONNECTION OPENED")
             values = {"symbol": symbol, "start": start, "end": end_datetime}
             query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND frequency = '1m' AND timestamp >= :start AND timestamp <= :end")
             df = pd.read_sql_query(query, connection, params=values)
@@ -195,4 +197,3 @@ def plot_in_placeholder(series, placeholder):
     fig.update_layout(autosize=True,height=650)  # You can adjust the width and height values as needed
 
     placeholder.plotly_chart(fig,use_container_width=True,theme="streamlit")
-

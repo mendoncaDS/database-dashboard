@@ -1,18 +1,23 @@
 
 import os
 import pytz
-from dotenv import load_dotenv
+
 from datetime import datetime
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
 # Constants
+
 FREQUENCY_MAPPING = {
     "1 minute": "1T",
+    "3 minutes": "3T",
     "5 minutes": "5T",
+    "10 minutes": "10T",
     "15 minutes": "15T",
     "30 minutes": "30T",
     "1 hour": "1H",
     "2 hours": "2H",
+    "3 hours": "3H",
     "4 hours": "4H",
     "6 hours": "6H",
     "12 hours": "12H",

@@ -1,3 +1,4 @@
+
 # External Library Imports
 import os
 
@@ -8,9 +9,10 @@ from sqlalchemy import create_engine
 
 # Local Module Imports
 from constants import FREQUENCY_MAPPING
-from render import prices_page_desktop, prices_page_mobile, bots_page
+from render import get_pages
 
 # ------------ Session State Initialization ------------
+
 def initialize_session_state():
     if 'dataframes_dict' not in st.session_state:
         st.session_state.dataframes_dict = {}
@@ -28,6 +30,7 @@ def initialize_session_state():
             st.session_state.engine = create_engine(connection_string, echo=False)
 
 # ------------ Main Function ------------
+
 def main():
     initialize_session_state()
 
@@ -47,11 +50,8 @@ def main():
         else:
             st.stop()
 
-    # Rest of your code
-    pages = {
-        "📈 Market Prices": prices_page_desktop if st.session_state.version == 'Desktop' else prices_page_mobile,
-        "🤖 Bots": bots_page,
-    }
+    # Get the pages object
+    pages = get_pages(st.session_state)
 
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", list(pages.keys()))
