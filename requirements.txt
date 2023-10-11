@@ -1,6 +1,7 @@
 
 plotly
 pandas
+pandas-ta
 sqlalchemy
 python-dotenv
 psycopg2-binary
