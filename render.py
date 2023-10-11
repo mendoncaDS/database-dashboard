@@ -31,21 +31,27 @@ def get_pages(session_state):
 
         st.sidebar.title("Data to fetch:")
 
+        # Check if it's the first load
+        if not hasattr(st.session_state, 'first_load'):
+            st.session_state.first_load = True
+
         with st.sidebar.form(key='my_form'):
             # Symbol and Frequency selectors inside the form
             symbol_selector(engine, session_state)
             frequency_selector()
 
-            # Set default value for date selector to 6 months ago
-            six_months_ago = datetime.today() - pd.DateOffset(months=6)
+            # Check if the dates are stored in session_state
+            if not hasattr(st.session_state, 'selected_date'):
+                st.session_state.selected_date = datetime.today() - pd.DateOffset(months=6)
+
+            if not hasattr(st.session_state, 'end_date'):
+                st.session_state.end_date = datetime.utcnow() + timedelta(days=1)
             
             col1, col2 = st.columns(2)
             with col1:
-                selected_date = st.date_input("Select Start Date", six_months_ago)
+                selected_date = st.date_input("Select Start Date", st.session_state.selected_date, key="selected_date_input")
             with col2:
-                # End Time Selector
-                end_date_default = datetime.utcnow() + timedelta(days=1)
-                end_date = st.date_input("Select End Date", end_date_default)
+                end_date = st.date_input("Select End Date", st.session_state.end_date, key="end_date_input")
 
             # Convert the selected_date and end_date to datetime objects and localize to UTC
             selected_datetime = datetime.combine(selected_date, time(0, 0)).replace(tzinfo=pytz.UTC)
@@ -57,12 +63,24 @@ def get_pages(session_state):
             with col1:
                 submit_button = st.form_submit_button(label='Load Data')
             with col2:
-                st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
+                default_log_scale = session_state.log_scale if "log_scale" in session_state else True
+                st.session_state.log_scale = st.checkbox("Log Y", value=default_log_scale, key='log_scale_key')
+            
+            if submit_button:
+                st.session_state.selected_date = selected_date
+                st.session_state.end_date = end_date
+                st.session_state.last_selected_symbol_index = session_state.unique_symbols.index(session_state.selected_symbol)
+                human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+                if human_readable_freq:
+                    st.session_state.last_selected_freq_index = list(FREQUENCY_MAPPING.keys()).index(human_readable_freq)
 
-        # Fetch and plot the data using the selected start and end timestamps
-        if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
-            start_time = t.time()  # Start timing here
-            fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine)
+            # Fetch and plot data on first load or when the form is submitted
+            if st.session_state.first_load or submit_button:
+                start_time = t.time()  # Start timing here
+                fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine)
+                
+                # Once data is fetched and plotted, set first_load to False
+                st.session_state.first_load = False
 
         # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
         if st.session_state.selected_symbol is not None:
@@ -71,7 +89,7 @@ def get_pages(session_state):
         else:
             graph_name_placeholder.write("💲")
 
-    def prices_page_mobile(engine):
+    def prices_page_mobile(engine): 
         st.title("📈 Binance Market Prices")
         graph_name_placeholder = st.empty()
         graph_placeholder = st.empty()
@@ -118,6 +136,8 @@ def get_pages(session_state):
                 submit_button = st.form_submit_button(label='Load Data')
             with col2:
                 st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
+
+        session_state.last_selected_symbol_index = session_state.unique_symbols.index(session_state.selected_symbol)
 
         # Check if the form was submitted
         if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
@@ -249,7 +269,10 @@ def symbol_selector(engine, session_state):
         session_state.unique_symbols = sorted(list(set([x[0] for x in unique_symbol_freqs(engine)])))
     
     # Default to "BTCUSDT" if not already selected
-    default_symbol_index = session_state.unique_symbols.index("BTCUSDT") if "BTCUSDT" in session_state.unique_symbols else 0
+    if "last_selected_symbol_index" in session_state:
+        default_symbol_index = session_state.last_selected_symbol_index
+    else:
+        default_symbol_index = session_state.unique_symbols.index("BTCUSDT") if "BTCUSDT" in session_state.unique_symbols else 0
 
     selected_symbol = st.selectbox(
         "Select a Symbol",
@@ -265,18 +288,20 @@ def frequency_selector():
     """
     Function to display the frequency dropdown outside the form.
     """
-    selected_freq_display = st.selectbox("Select Frequency", list(FREQUENCY_MAPPING.keys()), index=list(FREQUENCY_MAPPING.keys()).index("1 hour"))
+    default_freq_index = list(FREQUENCY_MAPPING.keys()).index("1 hour")
+    
+    # Check if a last selected frequency index exists in session_state
+    if "last_selected_freq_index" in st.session_state:
+        default_freq_index = st.session_state.last_selected_freq_index
+    
+    selected_freq_display = st.selectbox(
+        "Select Frequency", 
+        list(FREQUENCY_MAPPING.keys()), 
+        index=default_freq_index
+    )
+
     # Update the session state with the actual resampling code
     st.session_state.selected_freq = FREQUENCY_MAPPING[selected_freq_display]
-
-def datetime_selector():
-    # Date and Hour Selector
-    selected_date = st.date_input("Select a Date", datetime.now())
-    selected_hour = st.slider("Select an Hour", 0, 23, 0) # Slider from 0 to 23 for hours
-    selected_minute = st.slider("Select a Minute", 0, 59, 0) # Slider from 0 to 23 for hours
-    selected_datetime = datetime.combine(selected_date, time(hour=selected_hour, minute=selected_minute))
-    return selected_datetime
-
 
 def plot_dataframe(df, placeholder):
     """ Plot the dataframe's columns using plotly. """
