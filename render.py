@@ -94,7 +94,7 @@ def get_pages(session_state):
         graph_name_placeholder = st.empty()
         graph_placeholder = st.empty()
 
-        # Inject custom CSS to adjust column widths
+        # Custom CSS for column widths
         st.write('''<style>
         [data-testid="column"] {
             width: calc(33.3333% - 1rem) !important;
@@ -112,44 +112,49 @@ def get_pages(session_state):
             st.title("Data to fetch:")
 
             # Symbol and Frequency selectors inside the form
-            symbol_selector(engine, session_state)
+            symbol_selector(engine, st.session_state)
             frequency_selector()
 
-            # Set default value for date selector to 6 months ago
-            six_months_ago = datetime.today() - pd.DateOffset(months=6)
+            # Set default value for date selector based on session_state or fallbacks
+            default_start_date = st.session_state.selected_date if hasattr(st.session_state, 'selected_date') else datetime.today() - pd.DateOffset(months=6)
+            default_end_date = st.session_state.end_date if hasattr(st.session_state, 'end_date') else datetime.utcnow() + timedelta(days=1)
 
             col1, col2 = st.columns(2)
             with col1:
-                selected_date = st.date_input("Select Start Date", six_months_ago)
+                selected_date = st.date_input("Select Start Date", default_start_date)
             with col2:
-                # End Time Selector
-                end_date_default = datetime.utcnow() + timedelta(days=1)
-                end_date = st.date_input("Select End Date", end_date_default)
+                end_date = st.date_input("Select End Date", default_end_date)
 
             # Convert the selected_date and end_date to datetime objects and localize to UTC
             selected_datetime = datetime.combine(selected_date, time(0, 0)).replace(tzinfo=pytz.UTC)
             end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
 
-            # Adjusting column widths to force side-by-side layout
             col1, col2 = st.columns([1,1])
             with col1:
                 submit_button = st.form_submit_button(label='Load Data')
             with col2:
-                st.session_state.log_scale = st.checkbox("Log Y", value=True, key='log_scale_key')
+                default_log_scale = st.session_state.log_scale if "log_scale" in st.session_state else True
+                st.session_state.log_scale = st.checkbox("Log Y", value=default_log_scale, key='log_scale_key')
 
-        session_state.last_selected_symbol_index = session_state.unique_symbols.index(session_state.selected_symbol)
+            if submit_button:
+                st.session_state.selected_date = selected_date
+                st.session_state.end_date = end_date
+                st.session_state.last_selected_symbol_index = st.session_state.unique_symbols.index(st.session_state.selected_symbol)
+                human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+                if human_readable_freq:
+                    st.session_state.last_selected_freq_index = list(FREQUENCY_MAPPING.keys()).index(human_readable_freq)
 
-        # Check if the form was submitted
-        if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
-            start_time = t.time()  # Start timing here
-            fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine)
+            # Check if the form was submitted or if a new frequency was selected
+            if submit_button or (hasattr(st.session_state, "selected_freq") and st.session_state.selected_freq != "1h"):
+                start_time = t.time()
+                fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine)
 
-        # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
-        if st.session_state.selected_symbol is not None:
-            human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
-            graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
-        else:
-            graph_name_placeholder.write("💲")
+            # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
+            if st.session_state.selected_symbol is not None:
+                human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+                graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
+            else:
+                graph_name_placeholder.write("💲")
 
     def indicators_page(engine):
         st.title("📊 Indicators")
