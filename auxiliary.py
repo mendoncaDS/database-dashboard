@@ -22,42 +22,22 @@ def get_last_timestamp(symbol, freq, engine):
         last_timestamp = result.scalar()
     return last_timestamp
 
-def load_symbol_data(symbol, start, end_datetime, engine):
+
+def load_symbol_data(symbol, start_datetime, end_datetime, engine):
     """
     Load data for the given symbol from the specified start datetime to the specified end datetime.
     Always fetches 1-minute granularity data.
     """
-    start = max(start, MIN_DATETIME)  # Ensure the start date isn't before September 1st, 2017
-    start = start.replace(tzinfo=pytz.UTC)
+    start_datetime = max(start_datetime, MIN_DATETIME)  # Ensure the start date isn't before September 1st, 2017
+    start_datetime = start_datetime.replace(tzinfo=pytz.UTC)
     end_datetime = end_datetime.replace(tzinfo=pytz.UTC)
 
-    # Check if the data for this symbol is already in st.session_state.dataframes_dict
-    if symbol in st.session_state.dataframes_dict:
-        earliest_timestamp = st.session_state.dataframes_dict[symbol].index.min()
-        latest_timestamp = st.session_state.dataframes_dict[symbol].index.max()
-        
-        # If start is earlier than the earliest timestamp we have or end is after the latest, fetch data for that timeframe
-        if start < earliest_timestamp or end_datetime > latest_timestamp:
-            with engine.connect() as connection:
-                values = {"symbol": symbol, "start": start, "end": end_datetime}
-                query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND frequency = '1m' AND timestamp >= :start AND timestamp <= :end")
-                new_data = pd.read_sql_query(query, connection, params=values)
+    print(f"Loading data for {symbol} from {start_datetime} to {end_datetime}")
 
-            new_data.set_index('timestamp', inplace=True)
-            new_data.sort_index(inplace=True)
-            new_data.index = new_data.index.tz_localize('UTC')
-
-            # Merge the new data with the existing data
-            df = pd.concat([new_data, st.session_state.dataframes_dict[symbol]])
-            df = df[~df.index.duplicated(keep='first')]
-            df.sort_index(inplace=True)
-        else:
-            df = st.session_state.dataframes_dict[symbol]
-    else:
-        with engine.connect() as connection:
-            values = {"symbol": symbol, "start": start, "end": end_datetime}
-            query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND frequency = '1m' AND timestamp >= :start AND timestamp <= :end")
-            df = pd.read_sql_query(query, connection, params=values)
+    with engine.connect() as connection:
+        values = {"symbol": symbol, "start_datetime": start_datetime, "end": end_datetime}
+        query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND frequency = '1m' AND timestamp >= :start_datetime AND timestamp <= :end")
+        df = pd.read_sql_query(query, connection, params=values)
 
         df.set_index('timestamp', inplace=True)
         df.sort_index(inplace=True)
@@ -67,9 +47,10 @@ def load_symbol_data(symbol, start, end_datetime, engine):
         st.session_state.dataframes_dict[symbol] = df
 
     # Slice the dataframe using the start and end timestamps
-    df = df.loc[start:end_datetime]
+    df = df.loc[start_datetime:end_datetime]
     
     return df
+
 
 def unique_symbol_freqs(engine):
     with engine.connect() as connection:
@@ -144,49 +125,53 @@ def resample_data(data, freq):
         return resampled
 
 def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine):
-    
-    # Initialize most_recent_dt to None
-    most_recent_dt = None
-    
-    # Check if the data is already available before querying the database
-    if st.session_state.selected_symbol in st.session_state.dataframes_dict:
-        most_recent_dt = st.session_state.dataframes_dict[st.session_state.selected_symbol].index.max()
-        if most_recent_dt and most_recent_dt.tzinfo is None:
-            most_recent_dt = most_recent_dt.tz_localize('UTC')
+    # Ensure the selected_datetime is timezone-aware and in UTC
+    if selected_datetime.tzinfo is None or selected_datetime.tzinfo.utcoffset(selected_datetime) is not None:
+        selected_datetime = selected_datetime.replace(tzinfo=pytz.UTC)
+
+    # Ensure the end_datetime is timezone-aware and in UTC
+    if end_datetime.tzinfo is None or end_datetime.tzinfo.utcoffset(end_datetime) is not None:
+        end_datetime = end_datetime.replace(tzinfo=pytz.UTC)
+
+    symbol = st.session_state.selected_symbol
+
+    # Fetch the last timestamp from the database for this symbol
+    last_available_timestamp = get_last_timestamp(symbol, "1m", engine)
+
+    # If there's no local data for this symbol, initialize it by fetching from the database
+    if symbol not in st.session_state.dataframes_dict:
+        st.session_state.dataframes_dict[symbol] = load_symbol_data(symbol, selected_datetime, end_datetime, engine)
     else:
-        most_recent_dt = get_last_timestamp(st.session_state.selected_symbol, "1m", engine)
-        if most_recent_dt and most_recent_dt.tzinfo is None:
-            most_recent_dt = most_recent_dt.replace(tzinfo=pytz.UTC)
-    
-    if selected_datetime and selected_datetime > most_recent_dt:
-        st.warning("Please select a date that's before the most recent data available.")
-        return
+        local_data = st.session_state.dataframes_dict[symbol]
+        local_min_ts = local_data.index.min()
+        local_max_ts = local_data.index.max()
 
-    # If the most recent data in the database is newer than the most recent data we have locally, fetch it
-    if most_recent_dt and (st.session_state.selected_symbol not in st.session_state.dataframes_dict or most_recent_dt > st.session_state.dataframes_dict[st.session_state.selected_symbol].index.max()):
-        new_data = load_symbol_data(st.session_state.selected_symbol, most_recent_dt, end_datetime, engine)
-        # If data is already present for this symbol, append the new data
-        if st.session_state.selected_symbol in st.session_state.dataframes_dict:
-            st.session_state.dataframes_dict[st.session_state.selected_symbol] = pd.concat([st.session_state.dataframes_dict[st.session_state.selected_symbol], new_data])
-        else:
-            st.session_state.dataframes_dict[st.session_state.selected_symbol] = new_data
+        # If the local dataset doesn't reach back to the selected start date, fetch older data
+        if selected_datetime < local_min_ts:
+            older_data = load_symbol_data(symbol, selected_datetime, local_min_ts, engine)
+            st.session_state.dataframes_dict[symbol] = pd.concat([older_data, local_data])
 
+        # Ensure last_available_timestamp is timezone-aware by localizing it to UTC
+        if last_available_timestamp.tzinfo is None:
+            last_available_timestamp = pytz.UTC.localize(last_available_timestamp)
 
-    # If the selected date is older than MIN_DATETIME, adjust it to MIN_DATETIME
-    if selected_datetime < MIN_DATETIME:
-        selected_datetime = MIN_DATETIME
+        # Ensure local_max_ts is timezone-aware by localizing it to UTC
+        local_data = st.session_state.dataframes_dict[symbol]
+        local_min_ts = local_data.index.min()
+        if local_min_ts.tzinfo is None:
+            local_min_ts = pytz.UTC.localize(local_min_ts)
 
-    # Check if the required data exists locally
-    if st.session_state.selected_symbol in st.session_state.dataframes_dict:
-        earliest_timestamp_local = st.session_state.dataframes_dict[st.session_state.selected_symbol].index.min()
-        
-        if earliest_timestamp_local <= selected_datetime:
-            data = st.session_state.dataframes_dict[st.session_state.selected_symbol].loc[selected_datetime:end_datetime]
-        else:
-            data = load_symbol_data(st.session_state.selected_symbol, selected_datetime, end_datetime, engine)
+        local_max_ts = local_data.index.max()
+        if local_max_ts.tzinfo is None:
+            local_max_ts = pytz.UTC.localize(local_max_ts)
 
-    else:
-        data = load_symbol_data(st.session_state.selected_symbol, selected_datetime, end_datetime, engine)
+        # If the local dataset doesn't extend to the most recent data available, fetch newer data
+        if last_available_timestamp > local_max_ts:
+            newer_data = load_symbol_data(symbol, local_max_ts, last_available_timestamp, engine)
+            st.session_state.dataframes_dict[symbol] = pd.concat([local_data, newer_data])
+
+    # At this point, local data should span the required timeframe. Extract the necessary slice.
+    data = st.session_state.dataframes_dict[symbol].loc[selected_datetime:end_datetime]
     
 
     # Processing and plotting the data
@@ -202,9 +187,6 @@ def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_date
         plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
     else:
         st.warning("Please select an older start date.")
-
-    # Mark form as submitted
-    st.session_state.form_submitted = True
 
     # Calculate and display the time taken after plotting
     end_time = t.time()
