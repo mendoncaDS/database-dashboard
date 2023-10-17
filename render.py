@@ -2,15 +2,16 @@
 import pytz
 
 import time as t
+import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 
-from datetime import datetime, timedelta, time
+from datetime import datetime, time
 
 # Local Module Imports
 from constants import FREQUENCY_MAPPING
-from auxiliary import get_human_readable_freq, fetch_and_plot_data, unique_symbol_freqs, plot_in_placeholder, process_indicators
+from auxiliary import get_human_readable_freq, fetch_and_plot_data, plot_in_placeholder, process_indicators, resample_data
 
 # --------------- Page Rendering Functions ---------------
 def prices_page_desktop(engine):
@@ -66,7 +67,9 @@ def prices_page_desktop(engine):
         st.session_state.log_scale = log_scale
 
         start_time = t.time()  # Start timing here
-        fetch_and_plot_data(graph_name_placeholder, graph_placeholder, start_datetime, end_datetime, start_time, engine)
+        fetch_and_plot_data(graph_placeholder, start_datetime, end_datetime, engine)
+        end_time = t.time()
+        st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
     if submit_button:
         st.experimental_rerun()
     
@@ -133,7 +136,9 @@ def prices_page_mobile(engine):
         st.session_state.end_datetime = end_datetime
         st.session_state.log_scale = log_scale
         start_time = t.time()  # Start timing here
-        fetch_and_plot_data(graph_name_placeholder, graph_placeholder, start_datetime, end_datetime, start_time, engine)
+        fetch_and_plot_data(graph_placeholder, start_datetime, end_datetime, engine)
+        end_time = t.time()
+        st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
     if submit_button:
         st.experimental_rerun()
 
@@ -237,17 +242,153 @@ def indicators_page(engine):
     # If there's data available, process and plot it
     if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
         df = process_indicators(st.session_state.graph_data, st.session_state.indicators_list)
-        plot_dataframe(df, graph_placeholder)
+        plot_in_placeholder(df, graph_placeholder)
 
 def bots_page(engine):
     st.title("🤖 Bots")
     st.subheader("Coming soon!")
+
+def time_filtered_returns(engine):
+
+    def determine_resampling_freq(mins, hrs, days, months):
+        """
+        Determine the resampling frequency based on the selected timeframes.
+        """
+        if len(mins) > 0:
+            return "1T"
+        elif len(hrs) > 0:
+            return "1H"
+        elif len(days) > 0:
+            return "1D"
+        elif len(months) > 0:
+            return "1M"
+        else:
+            return "1Y"
+
+    def analyze_time_filtered_returns(ohlcv_df, mins, hrs, days, months, yrs):
+        # Filter data based on user's selection
+        ohlcv_df = ohlcv_df[
+            (ohlcv_df.index.minute.isin(mins) if len(mins) > 0 else True) &
+            (ohlcv_df.index.hour.isin(hrs) if len(hrs) > 0 else True) &
+            (ohlcv_df.index.day_name().isin(days) if len(days) > 0 else True) &
+            (ohlcv_df.index.month.isin(months) if len(months) > 0 else True) &
+            (ohlcv_df.index.year.isin(yrs) if len(yrs) > 0 else True)
+        ]
+        
+        # Calculate the daily returns
+        ohlcv_df['returns'] = ((ohlcv_df['close'] - ohlcv_df['open']) / ohlcv_df['open'])*100
+        
+        # Create a list of columns based on the user's selections. This list will determine the columns used for grouping.
+        ohlcv_df['minute'] = ohlcv_df.index.minute
+        ohlcv_df['hour'] = ohlcv_df.index.hour
+        ohlcv_df['day_of_week'] = ohlcv_df.index.day_name()
+        ohlcv_df['month'] = ohlcv_df.index.month
+        ohlcv_df['year'] = ohlcv_df.index.year
+
+        # Now we're sure all these columns are in the dataframe, regardless of the filtering options used.
+        group_by_columns = ['minute', 'hour', 'day_of_week', 'month', 'year']
+        
+        # Define a new list based on the actual selections made by the user. 
+        # This list will respect the user's choice of granularity.
+        selected_columns = []
+        if mins:
+            selected_columns.append('minute')
+        if hrs:
+            selected_columns.append('hour')
+        if days:
+            selected_columns.append('day_of_week')
+        if months:
+            selected_columns.append('month')
+        if yrs:
+            selected_columns.append('year')
+
+        # Determine the primary axis based on the most granular selection made by the user.
+        if selected_columns:
+            primary_axis = selected_columns[0]  # The first selection is the most granular
+        else:
+            primary_axis = 'returns'  # default if no specific time unit is selected
+
+        # No changes needed in the DataFrame creation
+        result_df = ohlcv_df[['returns'] + group_by_columns]
+
+        return result_df, primary_axis
+
+    def plot_returns(returns, primary_axis, graph_placeholder):
+        if not returns.empty:
+            fig_violin = px.box(
+                returns,
+                x=primary_axis,
+                y='returns',
+                height=700,
+            )
+            graph_placeholder.plotly_chart(fig_violin, use_container_width=True)
+        else:
+            st.warning("No data available after filtering. Please adjust your selection.")
+
+    def analyze_returns_plot(ohlcv_df, graph_placeholder, minutes, hours, days_of_week, months, years):
+        # Determine the resampling frequency
+        freq = determine_resampling_freq(minutes, hours, days_of_week, months)
+
+        # Resample the data
+        ohlcv_df = resample_data(ohlcv_df, freq)
+
+        returns, primary_axis = analyze_time_filtered_returns(ohlcv_df, minutes, hours, days_of_week, months, years)
+
+        st.session_state.last_return_analysis_res = {}
+        st.session_state.last_return_analysis_res["returns"] = returns
+        st.session_state.last_return_analysis_res["primary_axis"] = primary_axis
+
+        plot_returns(returns, primary_axis, graph_placeholder)
+
+    # Fetching the 1m granular data for the selected symbol from session_state
+    if st.session_state.selected_symbol in st.session_state.dataframes_dict:
+        ohlcv_df = st.session_state.dataframes_dict[st.session_state.selected_symbol]
+    else:
+        st.warning("No data available.")
+        return
+
+    st.title('🕵️‍♂️ Time Filtered Returns Analysis')
+
+    if st.session_state.selected_symbol is not None:
+        st.write(f"💲 {st.session_state.selected_symbol}")
+
+    # Placeholder for the graph
+    graph_placeholder = st.empty()
+
+    if hasattr(st.session_state, "last_return_analysis_res"):
+        plot_returns(st.session_state.last_return_analysis_res["returns"], st.session_state.last_return_analysis_res["primary_axis"], graph_placeholder)
+
+    st.write("Customize the Filter")
+    with st.form(key='return_analysis_form'):
+        # Use session state variables in the form
+        minutes = st.multiselect("Minute", list(range(60)), default=st.session_state.time_filter_selections['minutes'])
+        hours = st.multiselect("Hour", list(range(24)), default=st.session_state.time_filter_selections['hours'])
+        days_of_week = st.multiselect("Day of the Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"], default=st.session_state.time_filter_selections['days_of_week'])
+        months = st.multiselect("Month", list(range(1, 13)), default=st.session_state.time_filter_selections['months'])
+        years = st.multiselect("Year", list(range(2017, datetime.now().year+1)), default=st.session_state.time_filter_selections['years'])
+
+        submitted = st.form_submit_button("Analyze Returns")
+
+    # Action upon form submission
+    if submitted or not st.session_state.time_filter_selections['form_submitted_once']:
+        st.session_state.time_filter_selections['minutes'] = minutes
+        st.session_state.time_filter_selections['hours'] = hours
+        st.session_state.time_filter_selections['days_of_week'] = days_of_week
+        st.session_state.time_filter_selections['months'] = months
+        st.session_state.time_filter_selections['years'] = years
+        st.session_state.time_filter_selections['form_submitted_once'] = True
+
+        analyze_returns_plot(ohlcv_df, graph_placeholder, minutes, hours, days_of_week, months, years)
+    if submitted:
+        st.experimental_rerun()
+
 
 def get_pages(session_state):
     
     return {
         "📈 Market Prices": (prices_page_desktop if session_state.version == 'Desktop' else prices_page_mobile),
         "📊 Indicators": indicators_page,
+        "🕵️‍♂️ Filtered Returns Analysis": time_filtered_returns,
         "🤖 Bots": bots_page,
     }
 
@@ -283,18 +424,4 @@ def frequency_selector():
     selected_freq_display = st.selectbox("Select Frequency", all_freq_display_formats, index=current_index)
     
     return selected_freq_display
-
-
-def plot_dataframe(df, placeholder):
-    """ Plot the dataframe's columns using plotly. """
-    fig = px.line(df)
-
-    # Check if logarithmic scale is selected
-    if st.session_state.get('log_scale', False):
-        fig.update_yaxes(type="log")
-
-    # Update the layout to adjust the height and width
-    fig.update_layout(autosize=True, height=650)  # Adjust as needed
-
-    placeholder.plotly_chart(fig, use_container_width=True, theme="streamlit")
 

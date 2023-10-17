@@ -124,7 +124,7 @@ def resample_data(data, freq):
     else:
         return resampled
 
-def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_datetime, end_datetime, start_time, engine):
+def fetch_and_plot_data(graph_placeholder, selected_datetime, end_datetime, engine):
     # Ensure the selected_datetime is timezone-aware and in UTC
     if selected_datetime.tzinfo is None or selected_datetime.tzinfo.utcoffset(selected_datetime) is not None:
         selected_datetime = selected_datetime.replace(tzinfo=pytz.UTC)
@@ -182,23 +182,19 @@ def fetch_and_plot_data(graph_name_placeholder, graph_placeholder, selected_date
             st.warning("The data is too big for plotting. Please select a narrower time period or a broader time frame.")
             return
         
-        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {st.session_state.selected_freq}")
         st.session_state.graph_data = resampled_data  # Update the data in the session state
         plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
     else:
         st.warning("Please select an older start date.")
 
-    # Calculate and display the time taken after plotting
-    end_time = t.time()
-    st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
 
 def plot_in_placeholder(data, placeholder):
     # Convert to DataFrame if it's a Series
     if isinstance(data, pd.Series):
-        data = data.to_frame(name="Value")
+        data = data.to_frame()
 
     if not isinstance(data, pd.DataFrame):
-        st.error("The input is not a Pandas DataFrame.")
+        st.error("The input is not a Pandas DataFrame or Series.")
         return
 
     if not isinstance(data.index, pd.DatetimeIndex):

@@ -18,6 +18,8 @@ from auxiliary import unique_symbol_freqs
 # ------------ Session State Initialization ------------
 
 def initialize_session_state():
+    default_start_datetime = datetime.today() - pd.DateOffset(months=6)
+    default_end_datetime = datetime.utcnow() + timedelta(days=1)
     if 'dataframes_dict' not in st.session_state:
         st.session_state.dataframes_dict = {}
     if 'selected_symbol' not in st.session_state:
@@ -37,14 +39,22 @@ def initialize_session_state():
         # Fetch unique symbols from the database if they're not in session_state
         st.session_state.unique_symbols = sorted(list(set([x[0] for x in unique_symbol_freqs(st.session_state.engine)])))
     if 'start_datetime' not in st.session_state:
-        default_start_datetime = datetime.today() - pd.DateOffset(months=6)
         st.session_state.start_datetime = datetime.combine(default_start_datetime, time(0, 0)).replace(tzinfo=pytz.UTC)
     if 'end_datetime' not in st.session_state:
-        default_end_datetime = datetime.utcnow() + timedelta(days=1)
         st.session_state.end_datetime = datetime.combine(default_end_datetime, time(0, 0)).replace(tzinfo=pytz.UTC)
-        st.session_state.end_datetime = datetime.utcnow() + timedelta(days=1)
     if 'log_scale' not in st.session_state:
         st.session_state.log_scale = True
+
+    # Initialize a specific dictionary for this page's selections if it doesn't exist
+    if 'time_filter_selections' not in st.session_state:
+        st.session_state.time_filter_selections = {
+            'minutes': [],
+            'hours': [],
+            'days_of_week': ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+            'months': [],
+            'years': [],
+            'form_submitted_once': False  # Flag to check if form was submitted
+        }
 
 # ------------ Main Function ------------
 
