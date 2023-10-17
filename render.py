@@ -308,6 +308,13 @@ def time_filtered_returns(engine):
         else:
             primary_axis = 'returns'  # default if no specific time unit is selected
 
+        if 'day_of_week' in ohlcv_df.columns:
+            # Define the correct order of the days
+            days_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            
+            # Convert 'day_of_week' to a category with ordered levels
+            ohlcv_df['day_of_week'] = pd.Categorical(ohlcv_df['day_of_week'], categories=days_order, ordered=True)
+
         # No changes needed in the DataFrame creation
         result_df = ohlcv_df[['returns'] + group_by_columns]
 
