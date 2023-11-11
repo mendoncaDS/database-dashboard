@@ -1,8 +1,7 @@
-
-plotly
-pandas
+plotly==5.8.0
+pandas==1.4.2
 pandas-ta
-sqlalchemy
+sqlalchemy==1.4.32
 python-dotenv
-psycopg2-binary
-vectorbt
+psycopg2-binary==2.9.3
+vectorbt==0.23.0
