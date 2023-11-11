@@ -44,6 +44,8 @@ def initialize_session_state():
         st.session_state.end_datetime = datetime.combine(default_end_datetime, time(0, 0)).replace(tzinfo=pytz.UTC)
     if 'log_scale' not in st.session_state:
         st.session_state.log_scale = True
+    if 'bots_data' not in st.session_state:
+        st.session_state.bots_data = {}
 
     # Initialize a specific dictionary for this page's selections if it doesn't exist
     if 'time_filter_selections' not in st.session_state:

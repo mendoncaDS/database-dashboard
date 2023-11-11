@@ -4,14 +4,50 @@ import pytz
 import time as t
 import numpy as np
 import pandas as pd
+import vectorbt as vbt
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 
 from datetime import datetime, time
+from plotly.subplots import make_subplots
 
 # Local Module Imports
 from constants import FREQUENCY_MAPPING
-from auxiliary import get_human_readable_freq, fetch_and_plot_data, plot_in_placeholder, process_indicators, resample_data
+from auxiliary import get_human_readable_freq, fetch_and_plot_data, plot_in_placeholder, process_indicators, resample_data, unique_bots, update_bot_data, load_symbol_data, get_last_timestamp
+
+
+
+# --------------- Pre Aux Temp Functions ---------------
+
+def fetch_missing_price_data(engine, symbol, start_datetime):
+    
+    # before populating variable local_data, check if symbol is in dict's keys
+    if symbol not in st.session_state['dataframes_dict']:
+        st.session_state['dataframes_dict'][symbol] = load_symbol_data(symbol, start_datetime, datetime.now(pytz.timezone('UTC')), engine).iloc[:-1]
+        return
+
+    local_data = st.session_state['dataframes_dict'][symbol]
+    local_min_ts = local_data.index.min()
+    local_max_ts = local_data.index.max()
+
+    last_available_timestamp = get_last_timestamp(symbol, "1m", engine).replace(tzinfo=pytz.UTC)
+
+    # Fetch older data if needed
+    if start_datetime < local_min_ts:
+        older_data = load_symbol_data(symbol, start_datetime, local_min_ts, engine)
+        older_data = older_data.iloc[:-1]
+        st.session_state['dataframes_dict'][symbol] = pd.concat([older_data, local_data])
+
+    # Fetch newer data if needed
+    if last_available_timestamp > local_max_ts:
+        newer_data = load_symbol_data(symbol, local_max_ts, last_available_timestamp, engine)
+        newer_data = newer_data.iloc[1:-1]
+        st.session_state['dataframes_dict'][symbol] = pd.concat([local_data, newer_data])
+
+
+
+
 
 # --------------- Page Rendering Functions ---------------
 def prices_page_desktop(engine):
@@ -149,6 +185,184 @@ def prices_page_mobile(engine):
     else:
         graph_name_placeholder.write("💲")
 
+
+def plot_portfolio_position_delta(df, placeholder, position_height_ratio=0.1):
+    # Total height ratios
+    main_height_ratio = 1 - position_height_ratio  # remaining height for the main plot
+
+    # Calculate relative heights for the subplots
+    relative_heights = [main_height_ratio/2, main_height_ratio/2, position_height_ratio]
+
+    # Create a figure with 3 subplots
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
+                        subplot_titles=('Price vs. Strategy', 'Alpha', 'Position'),
+                        vertical_spacing=0.05,  # adjust spacing as needed
+                        row_heights=relative_heights)  # Define the relative heights of each subplot
+
+    # Close Price and Portfolio Value
+    fig.add_trace(go.Scatter(x=df.index, y=df['close'], 
+                             mode='lines', name='Close Price', 
+                             line=dict(color='blue')), 
+                             row=1, col=1)
+    fig.add_trace(go.Scatter(x=df.index, y=df['portfolio_value'], 
+                             mode='lines', name='Strategy', 
+                             line=dict(color='green')),
+                             row=1, col=1)
+
+    # Delta
+    fig.add_trace(go.Scatter(x=df.index, y=df['delta'], 
+                             mode='lines', name='Alpha', 
+                             line=dict(color='red')),
+                             row=2, col=1)
+
+    # Position
+    fig.add_trace(go.Scatter(x=df.index, y=df['position'], 
+                             mode='markers', name='Position', 
+                             marker_symbol='line-ns-open', marker_line_width=2, marker_size=10,
+                             marker_color='orange'), 
+                             row=3, col=1)
+
+    # Update xaxis and yaxis properties
+    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_yaxes(title_text="Price scale", row=1, col=1)
+    fig.update_yaxes(title_text="%", row=2, col=1)
+    fig.update_yaxes(title_text="", row=3, col=1)
+
+    # Update layout to add some properties like title
+    fig.update_layout(title_text="", height=700)
+
+    # Display the figure in the Streamlit placeholder
+    placeholder.plotly_chart(fig, use_container_width=True)
+
+
+def plot_trends_and_oscillators(df, placeholder):
+
+    # Separate the trend and oscillator indicators based on the column naming
+    trend_cols = [col for col in df.columns if col.startswith('trend_') or col == 'close']
+    osc_cols = [col for col in df.columns if col.startswith('osc_')]
+
+    trend_data = df[trend_cols]
+    osc_data = df[osc_cols]
+
+    # Define the heights
+    main_plot_ratio = 4  # The main plot is 2.5 times the height of each oscillator plot
+    per_oscillator_height = 150  # Height for each oscillator subplot
+    main_plot_height = int(main_plot_ratio * per_oscillator_height)  # Based on the ratio
+
+    # First, let's create a function that extracts the base name and group identifier.
+    def extract_base_name(column):
+        parts = column.split('_')
+        # The base name is the part after 'osc', and the group identifier is the last part.
+        base_name = parts[1]  # This is the actual indicator name (e.g., 'MACD' in 'osc_MACD_signal_1')
+        group_identifier = parts[-1]  # This is the group identifier (e.g., '1' in 'osc_MACD_signal_1')
+        return f"{base_name}_{group_identifier}"  # Combine them for grouping
+
+    # Apply the function to all oscillator columns to get the correct base names.
+    osc_base_names = set(extract_base_name(col) for col in osc_cols)
+
+    # Create a dictionary where keys are base names and values are lists of related columns.
+    osc_groups = {base_name: [] for base_name in osc_base_names}
+    for col in osc_cols:
+        base_name = extract_base_name(col)
+        osc_groups[base_name].append(col)
+
+    num_oscillator_groups = len(osc_groups)
+
+    indicator_line_style = {"width": 1.5}  # thinner lines for indicators
+    close_line_style = {"width": 2}  # default style, more visible
+    indicator_opacity = 0.75  # transparency level for indicators
+
+    # Adjust the total figure height based on the number of oscillator groups.
+    total_fig_height = main_plot_height + num_oscillator_groups * per_oscillator_height
+
+    # Create subplots based on the number of oscillator groups
+    if osc_groups:
+        # Define the relative heights of the subplots
+        subplot_heights = [main_plot_ratio] + [1] * num_oscillator_groups
+
+        # Create subplots with custom heights
+        fig = make_subplots(
+            rows=1 + num_oscillator_groups, 
+            cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.04,
+            subplot_titles=(["Trend Indicators"] + [name.replace('osc_', '') for name in osc_groups.keys()]),
+            row_heights=subplot_heights
+        )
+
+        for col in trend_data.columns:
+            # Remove 'trend_' prefix for legend
+            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
+            line_style = close_line_style if col == 'close' else indicator_line_style
+            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
+
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=trend_data[col], 
+                mode='lines', 
+                name=legend_name, 
+                line=line_style,  # Apply the customized style here
+                opacity=trace_opacity  # setting the opacity at the trace level
+            ), row=1, col=1)
+
+        # Now, we loop through the oscillator groups, not individual columns
+        osc_row_idx = 2  # initial row index for oscillator plots
+        for osc_name, columns in osc_groups.items():
+            for col in columns:
+                # The legend name should be the full column name without 'osc_' prefix.
+                legend_name = col.replace('osc_', '')  # Full indicator name excluding 'osc_'
+                fig.add_trace(go.Scatter(
+                    x=df.index, 
+                    y=osc_data[col], 
+                    mode='lines', 
+                    name=legend_name, 
+                    line=indicator_line_style,  # indicators style
+                    opacity=indicator_opacity  # setting the opacity at the trace level
+                ), row=osc_row_idx, col=1)
+            osc_row_idx += 1  # move to the next subplot for the next group
+
+
+
+        fig.update_xaxes(title_text="Date", row=1 + num_oscillator_groups, col=1)
+        fig.update_yaxes(title_text="Value", row=1, col=1)
+
+        for idx in range(2, 2 + num_oscillator_groups):
+            fig.update_yaxes(title_text="Value", row=idx, col=1)
+
+        if st.session_state.get('log_scale', False):
+            fig.update_yaxes(type="log", row=1, col=1)
+
+    else:
+        # If there are no oscillators, create a single plot for the main plot area
+        fig = go.Figure()
+
+        # Add trend data to the plot
+        for col in trend_data.columns:
+            # Remove 'trend_' prefix for legend
+            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
+            line_style = close_line_style if col == 'close' else indicator_line_style
+            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
+
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=trend_data[col], 
+                mode='lines', 
+                name=legend_name, 
+                line=line_style,  # Apply the customized style here
+                opacity=trace_opacity  # setting the opacity at the trace level
+            ))  # No row/col references here
+
+
+    # Update layout
+    fig.update_layout(
+        height=total_fig_height, 
+        width=1000, 
+        title_text="Trend and Oscillator Indicators"
+    )
+
+    # Display the figure
+    placeholder.plotly_chart(fig, use_container_width=True)
+
 def indicators_page(engine):
     st.title("📊 Indicators")
 
@@ -156,7 +370,7 @@ def indicators_page(engine):
     graph_placeholder = st.empty()
 
     # Dropdown for indicator selection
-    available_indicators = ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA", "BBANDS"]
+    available_indicators = ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA", "BBANDS", "RSI", "STOCH", "MACD"]
 
     # Initialize the indicators list if it doesn't exist
     if not hasattr(st.session_state, "indicators_list"):
@@ -178,25 +392,56 @@ def indicators_page(engine):
     # Display appropriate parameters input UI based on the indicator selected
     with col1.form(key='indicator_form'):
         params = {}
-        if selected_indicator in ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA"]:
+
+        # For indicators that only require a period
+        if selected_indicator in ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA", "RSI"]:
             params["period"] = st.number_input(f"Enter {selected_indicator} Period", value=20, min_value=1)
+
         elif selected_indicator == "BBANDS":
+            # For Bollinger Bands, which require length and std deviation
             inner_col1, inner_col2 = st.columns(2)
             with inner_col1:
                 params["length"] = st.number_input("Length", value=20, min_value=1)
             with inner_col2:
-                params["std"] = st.number_input("Number of standard deviations", value=2.0, min_value=0.5, step=0.1)
+                params["std"] = st.number_input("Std Dev", value=2.0, min_value=0.1, step=0.1)
+
+        elif selected_indicator == "STOCH":
+            # For Stochastic oscillator, which requires several parameters
+            params["fast_k_period"] = st.number_input("Fast K Period", value=14, min_value=1)
+            params["slow_k_period"] = st.number_input("Slow K Period", value=3, min_value=1)
+            params["slow_d_period"] = st.number_input("Slow D Period", value=3, min_value=1)
+
+        elif selected_indicator == "MACD":
+            # For MACD, which requires fast period, slow period, and signal period
+            inner_col1, inner_col2, inner_col3 = st.columns(3)
+            with inner_col1:
+                params["fast_period"] = st.number_input("Fast Period", value=12, min_value=1)
+            with inner_col2:
+                params["slow_period"] = st.number_input("Slow Period", value=26, min_value=1)
+            with inner_col3:
+                params["signal_period"] = st.number_input("Signal Period", value=9, min_value=1)
+
         add_indicator = st.form_submit_button(label=f"Add {selected_indicator}")
 
     # Add the selected indicator and its parameters to the indicators list
     if add_indicator:
-        st.session_state.indicators_list.append({"indicator": selected_indicator, "params": params})
-        # Update the legend_identifiers list after adding a new indicator
-        counter = {indicator['indicator']: 0 for indicator in st.session_state.indicators_list}
-        legend_identifiers = []
-        for item in st.session_state.indicators_list:
-            counter[item['indicator']] += 1
-            legend_identifiers.append(f"{item['indicator']} {counter[item['indicator']]}")
+        # Construct the new indicator entry
+        new_indicator_entry = {"indicator": selected_indicator, "params": params}
+
+        # Check if it's already in the list
+        if new_indicator_entry in st.session_state.indicators_list:
+            # Inform the user that this exact indicator configuration already exists
+            st.error(f"The indicator {selected_indicator} with the same parameters already exists. Please choose different parameters or select another indicator.")
+        else:
+            # If it's a unique entry, append it to the list and update the legends
+            st.session_state.indicators_list.append(new_indicator_entry)
+
+            # Update the legend_identifiers list after adding a new indicator
+            counter = {indicator['indicator']: 0 for indicator in st.session_state.indicators_list}
+            legend_identifiers = []
+            for item in st.session_state.indicators_list:
+                counter[item['indicator']] += 1
+                legend_identifiers.append(f"{item['indicator']} {counter[item['indicator']]}")
 
     # Form for deleting selected indicators in the left column
     with col1.form(key='delete_form'):
@@ -242,11 +487,105 @@ def indicators_page(engine):
     # If there's data available, process and plot it
     if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
         df = process_indicators(st.session_state.graph_data, st.session_state.indicators_list)
-        plot_in_placeholder(df, graph_placeholder)
+        plot_trends_and_oscillators(df, graph_placeholder)  # here we call the new plot function
+
+
+
 
 def bots_page(engine):
     st.title("🤖 Bots")
-    st.subheader("Coming soon!")
+
+    unique_bots_list = unique_bots(engine)
+
+    # Initialize keys in the 'bots_data' dictionary without assigning data
+    for bot_name in unique_bots_list:
+        if bot_name not in st.session_state['bots_data']:
+            st.session_state['bots_data'][bot_name] = None  # We are just setting up the keys with no data
+
+    # Create a select box for the user to select a bot. By default, the first bot is selected.
+    # The 'key' ensures that the same widget is used across reruns
+    selected_bot = st.selectbox("Select a bot:", unique_bots_list, index=0, key='selected_bot')
+
+    graph_placeholder = st.empty()
+
+    update_bot_data(engine, selected_bot)
+
+    current_bot_data = st.session_state['bots_data'][selected_bot]
+    current_bot_start = current_bot_data["timestamp"].min()
+    current_bot_symbol = current_bot_data["symbol"].unique()[0]
+
+    fetch_missing_price_data(engine,current_bot_symbol,current_bot_start.replace(tzinfo=pytz.UTC))
+
+    processed_bot_data = current_bot_data[["timestamp","position"]]
+    processed_bot_data.set_index("timestamp", inplace=True)
+    processed_bot_data = processed_bot_data.resample("1H").ffill()
+
+    bot_price_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]
+    bot_price_data.index = bot_price_data.index.tz_localize(None)
+    bot_price_data = bot_price_data.resample("1H").ffill()
+
+    processed_bot_data = pd.concat([processed_bot_data, bot_price_data["close"]], axis=1)
+
+    processed_bot_data["position"].fillna(method="ffill", inplace=True)
+
+    processed_bot_data["portfolio_value"] = np.nan
+
+    # set portfolio value to close first value
+
+    portfolio_value = processed_bot_data["close"].iloc[0]
+    last_position = 0
+    for timestamp in processed_bot_data.index:
+        current_close_price = processed_bot_data["close"].loc[timestamp]
+        entry_signal = processed_bot_data["position"].loc[timestamp]
+
+        if last_position:  # If the bot is long
+            # Calculate the price variation multiplier
+            price_variation_multiplier = current_close_price / last_close_price
+            # Update the portfolio value with the price variation
+            portfolio_value *= price_variation_multiplier
+            
+        # Whether long or short, update the last close price
+        last_close_price = current_close_price
+        last_position = entry_signal
+
+        processed_bot_data["portfolio_value"].loc[timestamp] = portfolio_value
+    
+    # make a new column, delta, the percentage difference between close price and pf value
+    processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["close"]) / processed_bot_data["close"]) * 100
+
+    #plot_portfolio_position_delta(processed_bot_data, graph_placeholder)
+
+    # separating line
+    #st.markdown("---")
+
+    #st.subheader("Bot info:")
+
+    #st.write(f"Asset traded: {current_bot_symbol}")
+    #st.write(f"Started trading: {current_bot_start}")
+
+    entries = processed_bot_data["position"] == 1
+
+    pf = vbt.Portfolio.from_signals(processed_bot_data["close"],
+                                    entries,
+                                    ~entries,
+                                    init_cash=100,
+                                    freq="1H",
+                                    )
+    st.plotly_chart(pf.plot(subplots = [
+        "trades",
+        "trade_pnl",
+        "cum_returns",
+        "underwater",
+        "net_exposure",
+        ]), use_container_width=True)
+    
+    pf_stats = pf.stats()
+    pf_stats.name = selected_bot
+
+    col1,col2 = st.columns(2)
+
+    col1.table(pf_stats)
+
 
 def time_filtered_returns(engine):
 
@@ -394,9 +733,9 @@ def get_pages(session_state):
     
     return {
         "📈 Market Prices": (prices_page_desktop if session_state.version == 'Desktop' else prices_page_mobile),
+        "🤖 Bots": bots_page,
         "📊 Indicators": indicators_page,
         "🕵️‍♂️ Filtered Returns Analysis": time_filtered_returns,
-        "🤖 Bots": bots_page,
     }
 
 # -------------- Widget Rendering Functions --------------
