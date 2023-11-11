@@ -5,3 +5,4 @@ pandas-ta
 sqlalchemy
 python-dotenv
 psycopg2-binary
+vectorbt
