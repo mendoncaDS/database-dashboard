@@ -511,10 +511,10 @@ def bots_page(engine):
     update_bot_data(engine, selected_bot)
 
     current_bot_data = st.session_state['bots_data'][selected_bot]
-    current_bot_start = current_bot_data["timestamp"].min()
+    current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
     current_bot_symbol = current_bot_data["symbol"].unique()[0]
 
-    fetch_missing_price_data(engine,current_bot_symbol,current_bot_start.replace(tzinfo=pytz.UTC))
+    fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
 
     processed_bot_data = current_bot_data[["timestamp","position"]]
     processed_bot_data.set_index("timestamp", inplace=True)
