@@ -552,10 +552,6 @@ def bots_page(engine):
     
     processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["close"]) / processed_bot_data["close"]) * 100
 
-    st.markdown("---")
-
-    st.subheader("Bot info:")
-
     processed_bot_data.dropna(inplace=True)
 
     entries = processed_bot_data["position"] == 1
@@ -574,6 +570,10 @@ def bots_page(engine):
         "net_exposure",
         ]), use_container_width=True)
     
+    st.markdown("---")
+
+    st.subheader("Bot info:")
+
     pf_stats = pf.stats()
     pf_stats.name = selected_bot
 
