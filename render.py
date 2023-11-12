@@ -506,23 +506,28 @@ def bots_page(engine):
     # The 'key' ensures that the same widget is used across reruns
     selected_bot = st.selectbox("Select a bot:", unique_bots_list, index=0, key='selected_bot')
 
-    graph_placeholder = st.empty()
-
     update_bot_data(engine, selected_bot)
 
     current_bot_data = st.session_state['bots_data'][selected_bot]
+    
     current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
     current_bot_symbol = current_bot_data["symbol"].unique()[0]
 
     fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
 
     processed_bot_data = current_bot_data[["timestamp","position"]]
+
+    # shift back column 'position' one step
+    processed_bot_data["position"] = processed_bot_data["position"].shift(1)
+    # now ffill the values that turned nan because of the shift
+    processed_bot_data["position"].fillna(method="ffill", inplace=True)
+
     processed_bot_data.set_index("timestamp", inplace=True)
-    processed_bot_data = processed_bot_data.resample("1H").ffill()
+    processed_bot_data = processed_bot_data.resample(f"1H").ffill()
 
     bot_price_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]
     bot_price_data.index = bot_price_data.index.tz_localize(None)
-    bot_price_data = bot_price_data.resample("1H").ffill()
+    bot_price_data = bot_price_data.resample(f"1H").ffill()
 
     processed_bot_data = pd.concat([processed_bot_data, bot_price_data["close"]], axis=1)
 
@@ -552,13 +557,13 @@ def bots_page(engine):
     
     processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["close"]) / processed_bot_data["close"]) * 100
 
-    processed_bot_data.dropna(inplace=True)
+    #processed_bot_data.dropna(inplace=True)
 
-    entries = processed_bot_data["position"] == 1
+    processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
     pf = vbt.Portfolio.from_signals(processed_bot_data["close"],
-                                    entries,
-                                    ~entries,
+                                    processed_bot_data["entries"],
+                                    ~processed_bot_data["entries"],
                                     init_cash=100,
                                     freq="1H",
                                     )
