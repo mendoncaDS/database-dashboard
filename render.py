@@ -550,18 +550,13 @@ def bots_page(engine):
 
         processed_bot_data["portfolio_value"].loc[timestamp] = portfolio_value
     
-    # make a new column, delta, the percentage difference between close price and pf value
     processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["close"]) / processed_bot_data["close"]) * 100
 
-    #plot_portfolio_position_delta(processed_bot_data, graph_placeholder)
+    st.markdown("---")
 
-    # separating line
-    #st.markdown("---")
+    st.subheader("Bot info:")
 
-    #st.subheader("Bot info:")
-
-    #st.write(f"Asset traded: {current_bot_symbol}")
-    #st.write(f"Started trading: {current_bot_start}")
+    processed_bot_data.dropna(inplace=True)
 
     entries = processed_bot_data["position"] == 1
 
