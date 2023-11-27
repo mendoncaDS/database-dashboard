@@ -518,10 +518,6 @@ def bots_page(engine):
     update_bot_data(engine, selected_bot)
 
     current_bot_data = st.session_state['bots_data'][selected_bot]
-
-    st.write(f"Current Bot Data:")
-    st.write(current_bot_data)
-    
     current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
     current_bot_symbol = current_bot_data["symbol"].unique()[0]
 
@@ -535,39 +531,8 @@ def bots_page(engine):
     bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
     bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
     bot_openprice_data = bot_openprice_data.resample(f"1H").first()
-
-    st.write(f"Current Open Price Data: ")
-    st.write(bot_openprice_data)
-
     processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
     processed_bot_data["position"].fillna(method="ffill", inplace=True)
-
-    # processed_bot_data["portfolio_value"] = np.nan
-
-    # set portfolio value to close first value
-
-    #portfolio_value = processed_bot_data["open"].iloc[0]
-    #last_position = 0
-    #for timestamp in processed_bot_data.index:
-        #current_open_price = processed_bot_data["open"].loc[timestamp]
-        #entry_signal = processed_bot_data["position"].loc[timestamp]
-
-        #if last_position:  # If the bot is long
-            ## Calculate the price variation multiplier
-            #price_variation_multiplier = current_open_price / last_close_price
-            ## Update the portfolio value with the price variation
-            #portfolio_value *= price_variation_multiplier
-            
-        ## Whether long or short, update the last close price
-        #last_close_price = current_open_price
-        #last_position = entry_signal
-
-        #processed_bot_data["portfolio_value"].loc[timestamp] = portfolio_value
-    
-    #processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["open"]) / processed_bot_data["open"]) * 100
-
-    #processed_bot_data.dropna(inplace=True)
-
     processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
     processed_bot_data = processed_bot_data[selected_begin_date:]
