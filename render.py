@@ -9,7 +9,7 @@ import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from plotly.subplots import make_subplots
 
 # Local Module Imports
@@ -44,6 +44,8 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
         newer_data = load_symbol_data(symbol, local_max_ts, last_available_timestamp, engine)
         newer_data = newer_data.iloc[1:-1]
         st.session_state['dataframes_dict'][symbol] = pd.concat([local_data, newer_data])
+    
+    print("Fetch missing price DONE")
 
 
 
@@ -497,6 +499,11 @@ def bots_page(engine):
 
     unique_bots_list = unique_bots(engine)
 
+    # if bots_list is empty, do not render page
+    if not unique_bots_list:
+        st.write("No bots found.")
+        return
+
     # Initialize keys in the 'bots_data' dictionary without assigning data
     for bot_name in unique_bots_list:
         if bot_name not in st.session_state['bots_data']:
@@ -506,9 +513,14 @@ def bots_page(engine):
     # The 'key' ensures that the same widget is used across reruns
     selected_bot = st.selectbox("Select a bot:", unique_bots_list, index=0, key='selected_bot')
 
+    selected_begin_date = st.date_input("Select start date:", value=datetime(2023, 1, 1))
+
     update_bot_data(engine, selected_bot)
 
     current_bot_data = st.session_state['bots_data'][selected_bot]
+
+    st.write(f"Current Bot Data:")
+    st.write(current_bot_data)
     
     current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
     current_bot_symbol = current_bot_data["symbol"].unique()[0]
@@ -517,56 +529,72 @@ def bots_page(engine):
 
     processed_bot_data = current_bot_data[["timestamp","position"]]
 
-    # shift back column 'position' one step
-    processed_bot_data["position"] = processed_bot_data["position"].shift(1)
-    # now ffill the values that turned nan because of the shift
-    processed_bot_data["position"].fillna(method="ffill", inplace=True)
-
     processed_bot_data.set_index("timestamp", inplace=True)
-    processed_bot_data = processed_bot_data.resample(f"1H").ffill()
 
-    bot_price_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]
-    bot_price_data.index = bot_price_data.index.tz_localize(None)
-    bot_price_data = bot_price_data.resample(f"1H").ffill()
 
-    processed_bot_data = pd.concat([processed_bot_data, bot_price_data["close"]], axis=1)
+    bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
+    bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
+    bot_openprice_data = bot_openprice_data.resample(f"1H").last()
 
+    st.write(f"Current Open Price Data: ")
+    st.write(bot_openprice_data)
+
+    processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
     processed_bot_data["position"].fillna(method="ffill", inplace=True)
 
-    processed_bot_data["portfolio_value"] = np.nan
+    # processed_bot_data["portfolio_value"] = np.nan
 
     # set portfolio value to close first value
 
-    portfolio_value = processed_bot_data["close"].iloc[0]
-    last_position = 0
-    for timestamp in processed_bot_data.index:
-        current_close_price = processed_bot_data["close"].loc[timestamp]
-        entry_signal = processed_bot_data["position"].loc[timestamp]
+    #portfolio_value = processed_bot_data["open"].iloc[0]
+    #last_position = 0
+    #for timestamp in processed_bot_data.index:
+        #current_open_price = processed_bot_data["open"].loc[timestamp]
+        #entry_signal = processed_bot_data["position"].loc[timestamp]
 
-        if last_position:  # If the bot is long
-            # Calculate the price variation multiplier
-            price_variation_multiplier = current_close_price / last_close_price
-            # Update the portfolio value with the price variation
-            portfolio_value *= price_variation_multiplier
+        #if last_position:  # If the bot is long
+            ## Calculate the price variation multiplier
+            #price_variation_multiplier = current_open_price / last_close_price
+            ## Update the portfolio value with the price variation
+            #portfolio_value *= price_variation_multiplier
             
-        # Whether long or short, update the last close price
-        last_close_price = current_close_price
-        last_position = entry_signal
+        ## Whether long or short, update the last close price
+        #last_close_price = current_open_price
+        #last_position = entry_signal
 
-        processed_bot_data["portfolio_value"].loc[timestamp] = portfolio_value
+        #processed_bot_data["portfolio_value"].loc[timestamp] = portfolio_value
     
-    processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["close"]) / processed_bot_data["close"]) * 100
+    #processed_bot_data["delta"] = ((processed_bot_data["portfolio_value"] - processed_bot_data["open"]) / processed_bot_data["open"]) * 100
 
     #processed_bot_data.dropna(inplace=True)
 
     processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-    pf = vbt.Portfolio.from_signals(processed_bot_data["close"],
+    processed_bot_data = processed_bot_data[selected_begin_date:]
+
+    st.dataframe(processed_bot_data)
+
+    pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
                                     processed_bot_data["entries"],
                                     ~processed_bot_data["entries"],
                                     init_cash=100,
                                     freq="1H",
                                     )
+    
+
+    pf_stats = pf.stats()
+    
+    st.subheader("Bot info:")
+    # colapsable section
+    with st.expander("Show bot info"):
+
+        pf_stats.name = selected_bot
+
+        col1,col2 = st.columns(2)
+
+        col1.table(pf_stats)
+
+    st.markdown("---")
     st.plotly_chart(pf.plot(subplots = [
         "trades",
         "trade_pnl",
@@ -577,14 +605,7 @@ def bots_page(engine):
     
     st.markdown("---")
 
-    st.subheader("Bot info:")
 
-    pf_stats = pf.stats()
-    pf_stats.name = selected_bot
-
-    col1,col2 = st.columns(2)
-
-    col1.table(pf_stats)
 
 
 def time_filtered_returns(engine):

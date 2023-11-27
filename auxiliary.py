@@ -100,7 +100,7 @@ def update_bot_data(engine, bot_name):
             # If the database has newer records, retrieve them
             with engine.connect() as connection:
                 query = text("""
-                    SELECT timestamp, position, portfolio_value, asset_value, symbol FROM bots 
+                    SELECT timestamp, position, symbol FROM bots 
                     WHERE bot_name = :bot_name AND timestamp > :latest_local_timestamp
                 """)
                 new_records = pd.read_sql(query, connection, params={"bot_name": bot_name, "latest_local_timestamp": latest_local_timestamp})
@@ -111,7 +111,7 @@ def update_bot_data(engine, bot_name):
     else:
         # If no local data exists, retrieve all data for this bot from the database
         with engine.connect() as connection:
-            query = text("SELECT timestamp, position, portfolio_value, asset_value, symbol FROM bots WHERE bot_name = :bot_name")
+            query = text("SELECT timestamp, symbol, position FROM bots WHERE bot_name = :bot_name")
             all_records = pd.read_sql(query, connection, params={"bot_name": bot_name})
 
         # Save the data to the session state
