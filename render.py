@@ -534,7 +534,7 @@ def bots_page(engine):
 
     bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
     bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
-    bot_openprice_data = bot_openprice_data.resample(f"1H").last()
+    bot_openprice_data = bot_openprice_data.resample(f"1H").first()
 
     st.write(f"Current Open Price Data: ")
     st.write(bot_openprice_data)
