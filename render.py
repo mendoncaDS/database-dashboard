@@ -537,8 +537,6 @@ def bots_page(engine):
 
     processed_bot_data = processed_bot_data[selected_begin_date:]
 
-    st.dataframe(processed_bot_data)
-
     pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
                                     processed_bot_data["entries"],
                                     ~processed_bot_data["entries"],
