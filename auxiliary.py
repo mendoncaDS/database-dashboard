@@ -108,8 +108,10 @@ def update_bot_data(engine, bot_name):
                 """)
                 new_records = pd.read_sql(query, connection, params={"bot_name": bot_name, "latest_local_timestamp": latest_local_timestamp})
 
-            # Append new records to the local data and update the session state
-            updated_data = local_data.append(new_records, ignore_index=True)
+            # updated_data = local_data.append(new_records, ignore_index=True)
+            updated_data = pd.concat([local_data, new_records], ignore_index=True)
+
+            # Update the session state with the new data
             st.session_state.bots_data_dict[bot_name]["data"] = updated_data
     else:
         # If no local data exists, retrieve all data for this bot from the database

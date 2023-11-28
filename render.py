@@ -109,7 +109,7 @@ def prices_page_desktop(engine):
         end_time = t.time()
         st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
     if submit_button:
-        st.experimental_rerun()
+        st.rerun()
     
     # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
     if st.session_state.selected_symbol is not None:
@@ -178,7 +178,7 @@ def prices_page_mobile(engine):
         end_time = t.time()
         st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
     if submit_button:
-        st.experimental_rerun()
+        st.rerun()
 
     # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
     if st.session_state.selected_symbol is not None:
@@ -186,55 +186,6 @@ def prices_page_mobile(engine):
         graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
     else:
         graph_name_placeholder.write("💲")
-
-
-def plot_portfolio_position_delta(df, placeholder, position_height_ratio=0.1):
-    # Total height ratios
-    main_height_ratio = 1 - position_height_ratio  # remaining height for the main plot
-
-    # Calculate relative heights for the subplots
-    relative_heights = [main_height_ratio/2, main_height_ratio/2, position_height_ratio]
-
-    # Create a figure with 3 subplots
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
-                        subplot_titles=('Price vs. Strategy', 'Alpha', 'Position'),
-                        vertical_spacing=0.05,  # adjust spacing as needed
-                        row_heights=relative_heights)  # Define the relative heights of each subplot
-
-    # Close Price and Portfolio Value
-    fig.add_trace(go.Scatter(x=df.index, y=df['close'], 
-                             mode='lines', name='Close Price', 
-                             line=dict(color='blue')), 
-                             row=1, col=1)
-    fig.add_trace(go.Scatter(x=df.index, y=df['portfolio_value'], 
-                             mode='lines', name='Strategy', 
-                             line=dict(color='green')),
-                             row=1, col=1)
-
-    # Delta
-    fig.add_trace(go.Scatter(x=df.index, y=df['delta'], 
-                             mode='lines', name='Alpha', 
-                             line=dict(color='red')),
-                             row=2, col=1)
-
-    # Position
-    fig.add_trace(go.Scatter(x=df.index, y=df['position'], 
-                             mode='markers', name='Position', 
-                             marker_symbol='line-ns-open', marker_line_width=2, marker_size=10,
-                             marker_color='orange'), 
-                             row=3, col=1)
-
-    # Update xaxis and yaxis properties
-    fig.update_xaxes(title_text="Date", row=3, col=1)
-    fig.update_yaxes(title_text="Price scale", row=1, col=1)
-    fig.update_yaxes(title_text="%", row=2, col=1)
-    fig.update_yaxes(title_text="", row=3, col=1)
-
-    # Update layout to add some properties like title
-    fig.update_layout(title_text="", height=700)
-
-    # Display the figure in the Streamlit placeholder
-    placeholder.plotly_chart(fig, use_container_width=True)
 
 
 def plot_trends_and_oscillators(df, placeholder):
@@ -458,7 +409,7 @@ def indicators_page(engine):
                     del st.session_state.indicators_list[index]
                 # Clear the selection after deletion
                 indices_to_delete.clear()
-                st.experimental_rerun()  # To ensure the UI updates
+                st.rerun()  # To ensure the UI updates
 
     # Display the selected indicators in a table in the right column
     if st.session_state.indicators_list:
@@ -505,10 +456,10 @@ def bots_page(engine):
         col1, col2 = st.columns(2)
         with col1:
             selected_begin_date = st.date_input("Select backtest start date:",
-                                                value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_begin_date"], "%Y-%m-%d"))
+                                                value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
         with col2:
             selected_end_date = st.date_input("Select backtest end date:",
-                                              value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
+                                              value=datetime.today().date()+timedelta(days=1))
         submit_button = st.form_submit_button(label='Update Backtest')
 
     # Determine if the form should be processed (either first load or submit button pressed)
@@ -521,9 +472,10 @@ def bots_page(engine):
         col1, col2 = st.columns(2)
         with col1:
             with st.expander("Show bot info"):
-                st.write(f"Bot name: {selected_bot}")
-                st.write(f"Training beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
-                st.write(f"Training end: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
+                st.write(f"Bot Name: {selected_bot}")
+                st.write(f"Traded Market: {st.session_state.bots_data_dict[selected_bot]['symbol']} - Binance")
+                st.write(f"Training Beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
+                st.write(f"Training End: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
 
         update_bot_data(engine, selected_bot)
 
@@ -547,27 +499,38 @@ def bots_page(engine):
 
         processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
 
-        pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
-                                        processed_bot_data["entries"],
-                                        ~processed_bot_data["entries"],
-                                        init_cash=100,
-                                        freq="1H",
-                                        )
-        
 
+        # Portfolio creation code remains unchanged
+        pf = vbt.Portfolio.from_signals(
+            processed_bot_data["open"],
+            processed_bot_data["entries"],
+            ~processed_bot_data["entries"],
+            init_cash=100,
+            freq="1H",
+        )
+
+        # Generate portfolio statistics
         pf_stats = pf.stats()
 
+        # Convert all values in pf_stats to strings
+        pf_stats_str = pf_stats.astype(str)
 
-        
         st.subheader("Backtest info:")
-        # colapsable section
+
+        # Collapsible section
         with st.expander("Show backtest info"):
+            # Set the name of the stats object (if applicable)
+            pf_stats_str.name = selected_bot  # Assuming 'selected_bot' is defined
 
-            pf_stats.name = selected_bot
+            # Create two columns for layout
+            col1, col2 = st.columns(2)
 
-            col1,col2 = st.columns(2)
+            # Convert the Series to a DataFrame for better display as a table
+            # We use 'name' to set the header for the value column
+            pf_stats_df = pf_stats_str.to_frame(name='Value')
 
-            col1.table(pf_stats)
+            # Display the stats in the first column as a table without the index
+            col1.table(pf_stats_df)
 
         st.markdown("---")
         st.plotly_chart(pf.plot(subplots = [
@@ -579,85 +542,6 @@ def bots_page(engine):
             ]), use_container_width=True)
         
         st.markdown("---")
-
-
-
-
-"""
-def bots_page(engine):
-    st.title("🤖 Bots")
-
-    # if bots_list is empty, do not render page
-    if not st.session_state.unique_bots_list:
-        st.write("No bots found.")
-        return
-
-    # Create a select box for the user to select a bot. By default, the first bot is selected.
-    # The 'key' ensures that the same widget is used across reruns
-
-    selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0, key='selected_bot')
-    
-    col1, col2 = st.columns(2)
-
-    with col1:
-        selected_begin_date = st.date_input("Select backtest start date:", value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_begin_date"], "%Y-%m-%d"), key="selected_bt_begin_data")
-    with col2:
-        selected_end_date = st.date_input("Select backtest end date:", value=datetime.today()+timedelta(days=1), key="selected_bt_end_data")
-
-    update_bot_data(engine, selected_bot)
-
-    current_bot_data = st.session_state['bots_data'][selected_bot]
-    current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
-    current_bot_symbol = current_bot_data["symbol"].unique()[0]
-
-    fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
-
-    processed_bot_data = current_bot_data[["timestamp","position"]]
-
-    processed_bot_data.set_index("timestamp", inplace=True)
-
-
-    bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
-    bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
-    bot_openprice_data = bot_openprice_data.resample(f"1H").first()
-    processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
-    processed_bot_data["position"].fillna(method="ffill", inplace=True)
-    processed_bot_data["entries"] = processed_bot_data["position"] == 1
-
-    processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
-
-    pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
-                                    processed_bot_data["entries"],
-                                    ~processed_bot_data["entries"],
-                                    init_cash=100,
-                                    freq="1H",
-                                    )
-    
-
-    pf_stats = pf.stats()
-    
-    st.subheader("Bot info:")
-    # colapsable section
-    with st.expander("Show bot info"):
-
-        pf_stats.name = selected_bot
-
-        col1,col2 = st.columns(2)
-
-        col1.table(pf_stats)
-
-    st.markdown("---")
-    st.plotly_chart(pf.plot(subplots = [
-        "trades",
-        "trade_pnl",
-        "cum_returns",
-        "underwater",
-        "net_exposure",
-        ]), use_container_width=True)
-    
-    st.markdown("---")
-
-"""
 
 
 def time_filtered_returns(engine):
@@ -799,7 +683,7 @@ def time_filtered_returns(engine):
 
         analyze_returns_plot(ohlcv_df, graph_placeholder, minutes, hours, days_of_week, months, years)
     if submitted:
-        st.experimental_rerun()
+        st.rerun()
 
 
 def get_pages(session_state):

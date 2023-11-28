@@ -101,7 +101,7 @@ def main():
         version = st.selectbox('Choose a version:', ['', 'Desktop', 'Mobile'], index=0)
         if version in ['Desktop', 'Mobile']:
             st.session_state.version = version
-            st.experimental_rerun()
+            st.rerun()
         else:
             st.stop()
 
