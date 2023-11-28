@@ -493,7 +493,97 @@ def indicators_page(engine):
 
 
 
+def bots_page(engine):
+    st.title("🤖 Bots")
 
+    # Check if it's the first load of the page
+    if 'first_load' not in st.session_state:
+        st.session_state.bots_page_first_load = True
+
+    with st.form(key='bot_selection_form'):
+        selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0)
+        col1, col2 = st.columns(2)
+        with col1:
+            selected_begin_date = st.date_input("Select backtest start date:",
+                                                value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_begin_date"], "%Y-%m-%d"))
+        with col2:
+            selected_end_date = st.date_input("Select backtest end date:",
+                                              value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
+        submit_button = st.form_submit_button(label='Update Backtest')
+
+    # Determine if the form should be processed (either first load or submit button pressed)
+    if st.session_state.bots_page_first_load or submit_button:
+        # Set first load to False after processing
+        st.session_state.bots_page_first_load = False
+
+        st.subheader("Bot info:")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            with st.expander("Show bot info"):
+                st.write(f"Bot name: {selected_bot}")
+                st.write(f"Training beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
+                st.write(f"Training end: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
+
+        update_bot_data(engine, selected_bot)
+
+        current_bot_data = st.session_state.bots_data_dict[selected_bot]["data"]
+        current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
+        current_bot_symbol = current_bot_data["symbol"].unique()[0]
+
+        fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
+
+        processed_bot_data = current_bot_data[["timestamp","position"]]
+
+        processed_bot_data.set_index("timestamp", inplace=True)
+
+
+        bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
+        bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
+        bot_openprice_data = bot_openprice_data.resample(f"1H").first()
+        processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
+        processed_bot_data["position"].fillna(method="ffill", inplace=True)
+        processed_bot_data["entries"] = processed_bot_data["position"] == 1
+
+        processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
+
+        pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
+                                        processed_bot_data["entries"],
+                                        ~processed_bot_data["entries"],
+                                        init_cash=100,
+                                        freq="1H",
+                                        )
+        
+
+        pf_stats = pf.stats()
+
+
+        
+        st.subheader("Backtest info:")
+        # colapsable section
+        with st.expander("Show backtest info"):
+
+            pf_stats.name = selected_bot
+
+            col1,col2 = st.columns(2)
+
+            col1.table(pf_stats)
+
+        st.markdown("---")
+        st.plotly_chart(pf.plot(subplots = [
+            "trades",
+            "trade_pnl",
+            "cum_returns",
+            "underwater",
+            "net_exposure",
+            ]), use_container_width=True)
+        
+        st.markdown("---")
+
+
+
+
+"""
 def bots_page(engine):
     st.title("🤖 Bots")
 
@@ -567,7 +657,7 @@ def bots_page(engine):
     
     st.markdown("---")
 
-
+"""
 
 
 def time_filtered_returns(engine):

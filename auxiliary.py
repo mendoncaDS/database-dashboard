@@ -83,7 +83,10 @@ def update_bot_data(engine, bot_name):
     """
 
     # Check if there is local data for the bot
-    local_data = st.session_state['bots_data'].get(bot_name)
+    if "data" in st.session_state.bots_data_dict[bot_name]:
+        local_data = st.session_state.bots_data_dict[bot_name]["data"]
+    else:
+        local_data = None
 
     if local_data is not None and not local_data.empty:
         # If local data exists, find the most recent timestamp
@@ -107,7 +110,7 @@ def update_bot_data(engine, bot_name):
 
             # Append new records to the local data and update the session state
             updated_data = local_data.append(new_records, ignore_index=True)
-            st.session_state['bots_data'][bot_name] = updated_data
+            st.session_state.bots_data_dict[bot_name]["data"] = updated_data
     else:
         # If no local data exists, retrieve all data for this bot from the database
         with engine.connect() as connection:
@@ -115,10 +118,10 @@ def update_bot_data(engine, bot_name):
             all_records = pd.read_sql(query, connection, params={"bot_name": bot_name})
 
         # Save the data to the session state
-        st.session_state['bots_data'][bot_name] = all_records
+        st.session_state.bots_data_dict[bot_name]["data"] = all_records
 
     # For debugging purposes, you might want to return the data and see it
-    return st.session_state['bots_data'][bot_name]
+    return st.session_state.bots_data_dict[bot_name]["data"]
 
 
 # ---------------------- Data Processing Functions ----------------------
