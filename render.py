@@ -531,8 +531,10 @@ def bots_page(engine):
 
             # Display the stats in the first column as a table without the index
             col1.table(pf_stats_df)
+        
+        st.subheader("Backtest visualization:")
 
-        with st.expander("Show backtest info"):
+        with st.expander("Show backtest visualization"):
             st.plotly_chart(pf.plot(subplots = [
                 "trades",
                 "trade_pnl",
