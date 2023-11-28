@@ -494,7 +494,7 @@ def bots_page(engine):
         bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
         bot_openprice_data = bot_openprice_data.resample(f"1H").first()
         processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
-        processed_bot_data["position"].fillna(method="ffill", inplace=True)
+        processed_bot_data["position"].ffill(inplace=True)
         processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
         processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
@@ -532,14 +532,14 @@ def bots_page(engine):
             # Display the stats in the first column as a table without the index
             col1.table(pf_stats_df)
 
-        st.markdown("---")
-        st.plotly_chart(pf.plot(subplots = [
-            "trades",
-            "trade_pnl",
-            "cum_returns",
-            "underwater",
-            "net_exposure",
-            ]), use_container_width=True)
+        with st.expander("Show backtest info"):
+            st.plotly_chart(pf.plot(subplots = [
+                "trades",
+                "trade_pnl",
+                "cum_returns",
+                "underwater",
+                "net_exposure",
+                ]), use_container_width=True)
         
         st.markdown("---")
 
