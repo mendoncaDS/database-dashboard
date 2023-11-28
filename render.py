@@ -497,23 +497,22 @@ def indicators_page(engine):
 def bots_page(engine):
     st.title("🤖 Bots")
 
-    unique_bots_list = unique_bots(engine)
-
     # if bots_list is empty, do not render page
-    if not unique_bots_list:
+    if not st.session_state.unique_bots_list:
         st.write("No bots found.")
         return
 
-    # Initialize keys in the 'bots_data' dictionary without assigning data
-    for bot_name in unique_bots_list:
-        if bot_name not in st.session_state['bots_data']:
-            st.session_state['bots_data'][bot_name] = None  # We are just setting up the keys with no data
-
     # Create a select box for the user to select a bot. By default, the first bot is selected.
     # The 'key' ensures that the same widget is used across reruns
-    selected_bot = st.selectbox("Select a bot:", unique_bots_list, index=0, key='selected_bot')
 
-    selected_begin_date = st.date_input("Select start date:", value=datetime(2023, 1, 1))
+    selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0, key='selected_bot')
+    
+    col1, col2 = st.columns(2)
+
+    with col1:
+        selected_begin_date = st.date_input("Select backtest start date:", value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_begin_date"], "%Y-%m-%d"), key="selected_bt_begin_data")
+    with col2:
+        selected_end_date = st.date_input("Select backtest end date:", value=datetime.today()+timedelta(days=1), key="selected_bt_end_data")
 
     update_bot_data(engine, selected_bot)
 
@@ -535,7 +534,7 @@ def bots_page(engine):
     processed_bot_data["position"].fillna(method="ffill", inplace=True)
     processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-    processed_bot_data = processed_bot_data[selected_begin_date:]
+    processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
 
     pf = vbt.Portfolio.from_signals(processed_bot_data["open"],
                                     processed_bot_data["entries"],

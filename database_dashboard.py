@@ -1,7 +1,9 @@
 
 # External Library Imports
 import os
+import json
 import pytz
+import requests
 
 import pandas as pd
 import streamlit as st
@@ -32,8 +34,32 @@ def initialize_session_state():
             load_dotenv()
             database_password = os.environ.get('password')
             server_address = os.environ.get('serverip')
+            github_token = os.environ.get('githubtoken')
             connection_string = f"postgresql://postgres:{database_password}@{server_address}:5432/postgres"
             st.session_state.engine = create_engine(connection_string, echo=False)
+
+            headers = {
+                'Authorization': f'token {github_token}',
+                'Accept': 'application/vnd.github.v3.raw'
+            }
+
+            zurfer_bots_config_url = 'https://api.github.com/repos/mendoncaDS/zlema_bots_config/contents/bots_config.json?ref=main'
+
+            zurfer_bots_response = requests.get(zurfer_bots_config_url, headers=headers)
+            if zurfer_bots_response.ok:
+                bots_data_list = json.loads(zurfer_bots_response.text)
+                st.session_state.bots_data_dict = {}
+                # Loop through each dictionary in the list
+                for bot in bots_data_list:
+                    # Use the 'bot_name' as the key for the new dictionary
+                    bot_name = bot.pop('bot_name')  # Remove 'bot_name' and get its value
+                    st.session_state.bots_data_dict[bot_name] = bot  # Assign the remaining dictionary to the bot_name key
+                st.session_state.unique_bots_list = [key for key in st.session_state.bots_data_dict.keys()]
+            else:
+                # Handle errors here
+                print('Could not fetch the file:', zurfer_bots_response.status_code)
+
+
     # Check if unique symbols are already in session_state
     if 'unique_symbols' not in st.session_state:
         # Fetch unique symbols from the database if they're not in session_state
