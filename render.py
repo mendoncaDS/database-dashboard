@@ -495,10 +495,10 @@ def bots_page(engine):
         bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
         bot_openprice_data = bot_openprice_data.resample(f"1H").first()
         processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
-        processed_bot_data["position"].ffill(inplace=True)
+        processed_bot_data["position"].ffill(inplace=True).dropna(inplace=True)
         processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-        processed_bot_data = processed_bot_data[selected_begin_date:current_bot_end]
+        processed_bot_data = processed_bot_data[selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(selected_end_date))]
 
 
         # Portfolio creation code remains unchanged
