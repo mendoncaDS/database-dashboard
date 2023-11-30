@@ -481,6 +481,7 @@ def bots_page(engine):
 
         current_bot_data = st.session_state.bots_data_dict[selected_bot]["data"]
         current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
+        current_bot_end = current_bot_data["timestamp"].max().replace(tzinfo=pytz.UTC)
         current_bot_symbol = current_bot_data["symbol"].unique()[0]
 
         fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
@@ -497,7 +498,7 @@ def bots_page(engine):
         processed_bot_data["position"].ffill(inplace=True)
         processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-        processed_bot_data = processed_bot_data[selected_begin_date:selected_end_date]
+        processed_bot_data = processed_bot_data[selected_begin_date:current_bot_end]
 
 
         # Portfolio creation code remains unchanged
