@@ -31,7 +31,7 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
     local_min_ts = local_data.index.min()
     local_max_ts = local_data.index.max()
 
-    last_available_timestamp = get_last_timestamp(symbol, "1m", engine).replace(tzinfo=pytz.UTC)
+    last_available_timestamp = get_last_timestamp(symbol, engine).replace(tzinfo=pytz.UTC)
 
     # Fetch older data if needed
     if start_datetime < local_min_ts:
@@ -48,54 +48,43 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
     print("Fetch missing price DONE")
 
 
-
-
-
 # --------------- Page Rendering Functions ---------------
+
 def prices_page_desktop(engine):
-
-    st.title("📈 Binance Market Prices")
-
-    # Create placeholder for the graph name early
-    graph_name_placeholder = st.empty()
+    st.title("📈 Market Visualization")
 
     # Placeholder for the graph
     graph_placeholder = st.empty()
 
-    # If there's old data in session state, plot it before querying new data
+    # Process and plot data if available
     if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
-        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
+        df = process_indicators(st.session_state.graph_data, st.session_state.indicators_list)
+        plot_trends_and_oscillators(df, graph_placeholder)  # Call the plot function
 
-    st.sidebar.title("Data to fetch:")
-
-    with st.sidebar.form(key='fetch_from_database_form'):
+    # Data fetching form
+    with st.form(key='fetch_from_database_form'):
         st.session_state.price_plotted = False
         # Symbol and Frequency selectors inside the form
         selected_symbol = symbol_selector(engine)
         selected_freq_display = frequency_selector()
 
-        # Set default value for date selector to 6 months ago
-        #six_months_ago = datetime.today() - pd.DateOffset(months=6)
-        
         col1, col2 = st.columns(2)
         with col1:
             start_date = st.date_input("Select Start Date", st.session_state.start_datetime)
         with col2:
-            # End Time Selector
             end_date = st.date_input("Select End Date", st.session_state.end_datetime)
 
-        # Convert the selected_date and end_date to datetime objects and localize to UTC
+        # Convert to datetime objects and localize to UTC
         start_datetime = datetime.combine(start_date, time(0, 0)).replace(tzinfo=pytz.UTC)
         end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
 
-        # The submit button for the form
         col1, col2 = st.columns(2)
         with col1:
             submit_button = st.form_submit_button(label='Load Data')
         with col2:
             log_scale = st.checkbox("Log Y", value=st.session_state.log_scale)
 
-    # Fetch and plot the data using the selected start and end timestamps
+    # Fetch and plot the data using the selected timestamps
     if submit_button or not st.session_state.price_plotted:
         st.session_state.price_plotted = True
         st.session_state.selected_symbol = selected_symbol
@@ -104,223 +93,8 @@ def prices_page_desktop(engine):
         st.session_state.end_datetime = end_datetime
         st.session_state.log_scale = log_scale
 
-        start_time = t.time()  # Start timing here
-        fetch_and_plot_data(graph_placeholder, start_datetime, end_datetime, engine)
-        end_time = t.time()
-        st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
-    if submit_button:
-        st.rerun()
-    
-    # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
-    if st.session_state.selected_symbol is not None:
-        human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
-        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
-    else:
-        graph_name_placeholder.write("💲")
+        fetch_and_plot_data(start_datetime, end_datetime, engine)
 
-def prices_page_mobile(engine):
-    st.title("📈 Binance Market Prices")
-    graph_name_placeholder = st.empty()
-    graph_placeholder = st.empty()
-
-    # Inject custom CSS to adjust column widths
-    st.write('''<style>
-    [data-testid="column"] {
-        width: calc(33.3333% - 1rem) !important;
-        flex: 1 1 calc(33.3333% - 1rem) !important;
-        min-width: calc(33% - 1rem) !important;
-    }
-    </style>''', unsafe_allow_html=True)
-
-    # If there's old data in session state, plot it before querying new data
-    if hasattr(st.session_state, "graph_data") and st.session_state.graph_data is not None:
-        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)
-
-    # Move form to main area
-    with st.form(key='my_form'):
-        st.title("Data to fetch:")
-
-        st.session_state.price_plotted = False
-        # Symbol and Frequency selectors inside the form
-        selected_symbol = symbol_selector(engine)
-        selected_freq_display = frequency_selector()
-
-        # Set default value for date selector to 6 months ago
-
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input("Select Start Date", st.session_state.start_datetime)
-        with col2:
-            # End Time Selector
-            end_date = st.date_input("Select End Date", st.session_state.end_datetime)
-
-        # Convert the selected_date and end_date to datetime objects and localize to UTC
-        start_datetime = datetime.combine(start_date, time(0, 0)).replace(tzinfo=pytz.UTC)
-        end_datetime = datetime.combine(end_date, time(0, 0)).replace(tzinfo=pytz.UTC)
-
-        # Adjusting column widths to force side-by-side layout
-        col1, col2 = st.columns([1,1])
-        with col1:
-            submit_button = st.form_submit_button(label='Load Data')
-        with col2:
-            log_scale = st.checkbox("Log Y", value=st.session_state.log_scale)
-
-    # Check if the form was submitted
-    if submit_button or not st.session_state.price_plotted:
-        st.session_state.price_plotted = True
-        st.session_state.selected_symbol = selected_symbol
-        st.session_state.selected_freq = FREQUENCY_MAPPING[selected_freq_display]
-        st.session_state.start_datetime = start_datetime
-        st.session_state.end_datetime = end_datetime
-        st.session_state.log_scale = log_scale
-        start_time = t.time()  # Start timing here
-        fetch_and_plot_data(graph_placeholder, start_datetime, end_datetime, engine)
-        end_time = t.time()
-        st.write(f"Plot loaded in {end_time - start_time:.2f} seconds.")
-    if submit_button:
-        st.rerun()
-
-    # Update the graph_name_placeholder with the current symbol and frequency after the form is processed
-    if st.session_state.selected_symbol is not None:
-        human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
-        graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
-    else:
-        graph_name_placeholder.write("💲")
-
-
-def plot_trends_and_oscillators(df, placeholder):
-
-    # Separate the trend and oscillator indicators based on the column naming
-    trend_cols = [col for col in df.columns if col.startswith('trend_') or col == 'close']
-    osc_cols = [col for col in df.columns if col.startswith('osc_')]
-
-    trend_data = df[trend_cols]
-    osc_data = df[osc_cols]
-
-    # Define the heights
-    main_plot_ratio = 4  # The main plot is 2.5 times the height of each oscillator plot
-    per_oscillator_height = 150  # Height for each oscillator subplot
-    main_plot_height = int(main_plot_ratio * per_oscillator_height)  # Based on the ratio
-
-    # First, let's create a function that extracts the base name and group identifier.
-    def extract_base_name(column):
-        parts = column.split('_')
-        # The base name is the part after 'osc', and the group identifier is the last part.
-        base_name = parts[1]  # This is the actual indicator name (e.g., 'MACD' in 'osc_MACD_signal_1')
-        group_identifier = parts[-1]  # This is the group identifier (e.g., '1' in 'osc_MACD_signal_1')
-        return f"{base_name}_{group_identifier}"  # Combine them for grouping
-
-    # Apply the function to all oscillator columns to get the correct base names.
-    osc_base_names = set(extract_base_name(col) for col in osc_cols)
-
-    # Create a dictionary where keys are base names and values are lists of related columns.
-    osc_groups = {base_name: [] for base_name in osc_base_names}
-    for col in osc_cols:
-        base_name = extract_base_name(col)
-        osc_groups[base_name].append(col)
-
-    num_oscillator_groups = len(osc_groups)
-
-    indicator_line_style = {"width": 1.5}  # thinner lines for indicators
-    close_line_style = {"width": 2}  # default style, more visible
-    indicator_opacity = 0.75  # transparency level for indicators
-
-    # Adjust the total figure height based on the number of oscillator groups.
-    total_fig_height = main_plot_height + num_oscillator_groups * per_oscillator_height
-
-    # Create subplots based on the number of oscillator groups
-    if osc_groups:
-        # Define the relative heights of the subplots
-        subplot_heights = [main_plot_ratio] + [1] * num_oscillator_groups
-
-        # Create subplots with custom heights
-        fig = make_subplots(
-            rows=1 + num_oscillator_groups, 
-            cols=1, 
-            shared_xaxes=True, 
-            vertical_spacing=0.04,
-            subplot_titles=(["Trend Indicators"] + [name.replace('osc_', '') for name in osc_groups.keys()]),
-            row_heights=subplot_heights
-        )
-
-        for col in trend_data.columns:
-            # Remove 'trend_' prefix for legend
-            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
-            line_style = close_line_style if col == 'close' else indicator_line_style
-            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
-
-            fig.add_trace(go.Scatter(
-                x=df.index, 
-                y=trend_data[col], 
-                mode='lines', 
-                name=legend_name, 
-                line=line_style,  # Apply the customized style here
-                opacity=trace_opacity  # setting the opacity at the trace level
-            ), row=1, col=1)
-
-        # Now, we loop through the oscillator groups, not individual columns
-        osc_row_idx = 2  # initial row index for oscillator plots
-        for osc_name, columns in osc_groups.items():
-            for col in columns:
-                # The legend name should be the full column name without 'osc_' prefix.
-                legend_name = col.replace('osc_', '')  # Full indicator name excluding 'osc_'
-                fig.add_trace(go.Scatter(
-                    x=df.index, 
-                    y=osc_data[col], 
-                    mode='lines', 
-                    name=legend_name, 
-                    line=indicator_line_style,  # indicators style
-                    opacity=indicator_opacity  # setting the opacity at the trace level
-                ), row=osc_row_idx, col=1)
-            osc_row_idx += 1  # move to the next subplot for the next group
-
-
-
-        fig.update_xaxes(title_text="Date", row=1 + num_oscillator_groups, col=1)
-        fig.update_yaxes(title_text="Value", row=1, col=1)
-
-        for idx in range(2, 2 + num_oscillator_groups):
-            fig.update_yaxes(title_text="Value", row=idx, col=1)
-
-        if st.session_state.get('log_scale', False):
-            fig.update_yaxes(type="log", row=1, col=1)
-
-    else:
-        # If there are no oscillators, create a single plot for the main plot area
-        fig = go.Figure()
-
-        # Add trend data to the plot
-        for col in trend_data.columns:
-            # Remove 'trend_' prefix for legend
-            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
-            line_style = close_line_style if col == 'close' else indicator_line_style
-            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
-
-            fig.add_trace(go.Scatter(
-                x=df.index, 
-                y=trend_data[col], 
-                mode='lines', 
-                name=legend_name, 
-                line=line_style,  # Apply the customized style here
-                opacity=trace_opacity  # setting the opacity at the trace level
-            ))  # No row/col references here
-
-
-    # Update layout
-    fig.update_layout(
-        height=total_fig_height, 
-        width=1000, 
-        title_text="Trend and Oscillator Indicators"
-    )
-
-    # Display the figure
-    placeholder.plotly_chart(fig, use_container_width=True)
-
-def indicators_page(engine):
-    st.title("📊 Indicators")
-
-    # Placeholder for the graph
-    graph_placeholder = st.empty()
 
     # Dropdown for indicator selection
     available_indicators = ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA", "BBANDS", "RSI", "STOCH", "MACD"]
@@ -442,110 +216,257 @@ def indicators_page(engine):
         df = process_indicators(st.session_state.graph_data, st.session_state.indicators_list)
         plot_trends_and_oscillators(df, graph_placeholder)  # here we call the new plot function
 
+def plot_trends_and_oscillators(df, placeholder):
+    print("plot_trends_and_oscillators")
+
+    # Separate the trend and oscillator indicators based on the column naming
+    trend_cols = [col for col in df.columns if col.startswith('trend_') or col == 'close']
+    osc_cols = [col for col in df.columns if col.startswith('osc_')]
+
+    trend_data = df[trend_cols]
+    osc_data = df[osc_cols]
+
+    # Define the heights
+    main_plot_ratio = 4  # The main plot is 2.5 times the height of each oscillator plot
+    per_oscillator_height = 150  # Height for each oscillator subplot
+    main_plot_height = int(main_plot_ratio * per_oscillator_height)  # Based on the ratio
+
+    # First, let's create a function that extracts the base name and group identifier.
+    def extract_base_name(column):
+        parts = column.split('_')
+        # The base name is the part after 'osc', and the group identifier is the last part.
+        base_name = parts[1]  # This is the actual indicator name (e.g., 'MACD' in 'osc_MACD_signal_1')
+        group_identifier = parts[-1]  # This is the group identifier (e.g., '1' in 'osc_MACD_signal_1')
+        return f"{base_name}_{group_identifier}"  # Combine them for grouping
+
+    # Apply the function to all oscillator columns to get the correct base names.
+    osc_base_names = set(extract_base_name(col) for col in osc_cols)
+
+    # Create a dictionary where keys are base names and values are lists of related columns.
+    osc_groups = {base_name: [] for base_name in osc_base_names}
+    for col in osc_cols:
+        base_name = extract_base_name(col)
+        osc_groups[base_name].append(col)
+
+    num_oscillator_groups = len(osc_groups)
+
+    indicator_line_style = {"width": 1.5}  # thinner lines for indicators
+    close_line_style = {"width": 2}  # default style, more visible
+    indicator_opacity = 0.75  # transparency level for indicators
+
+    # Adjust the total figure height based on the number of oscillator groups.
+    total_fig_height = main_plot_height + num_oscillator_groups * per_oscillator_height
+
+    # Create subplots based on the number of oscillator groups
+    if osc_groups:
+        # Define the relative heights of the subplots
+        subplot_heights = [main_plot_ratio] + [1] * num_oscillator_groups
+
+        # Create subplots with custom heights
+        fig = make_subplots(
+            rows=1 + num_oscillator_groups, 
+            cols=1, 
+            shared_xaxes=True, 
+            vertical_spacing=0.04,
+            subplot_titles=(["Trend Indicators"] + [name.replace('osc_', '') for name in osc_groups.keys()]),
+            row_heights=subplot_heights
+        )
+
+        for col in trend_data.columns:
+            # Remove 'trend_' prefix for legend
+            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
+            line_style = close_line_style if col == 'close' else indicator_line_style
+            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
+
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=trend_data[col], 
+                mode='lines', 
+                name=legend_name, 
+                line=line_style,  # Apply the customized style here
+                opacity=trace_opacity  # setting the opacity at the trace level
+            ), row=1, col=1)
+
+        # Now, we loop through the oscillator groups, not individual columns
+        osc_row_idx = 2  # initial row index for oscillator plots
+        for osc_name, columns in osc_groups.items():
+            for col in columns:
+                # The legend name should be the full column name without 'osc_' prefix.
+                legend_name = col.replace('osc_', '')  # Full indicator name excluding 'osc_'
+                fig.add_trace(go.Scatter(
+                    x=df.index, 
+                    y=osc_data[col], 
+                    mode='lines', 
+                    name=legend_name, 
+                    line=indicator_line_style,  # indicators style
+                    opacity=indicator_opacity  # setting the opacity at the trace level
+                ), row=osc_row_idx, col=1)
+            osc_row_idx += 1  # move to the next subplot for the next group
+
+
+
+        fig.update_xaxes(title_text="Date", row=1 + num_oscillator_groups, col=1)
+        fig.update_yaxes(title_text="Value", row=1, col=1)
+
+        for idx in range(2, 2 + num_oscillator_groups):
+            fig.update_yaxes(title_text="Value", row=idx, col=1)
+
+        if st.session_state.get('log_scale', True):
+            fig.update_yaxes(type="log", row=1, col=1)
+        
+        print("A")
+
+    else:
+        # If there are no oscillators, create a single plot for the main plot area
+        print("B")
+        fig = go.Figure()
+
+        # Add trend data to the plot
+        for col in trend_data.columns:
+            # Remove 'trend_' prefix for legend
+            legend_name = col.replace('trend_', '') if col.startswith('trend_') else col
+            line_style = close_line_style if col == 'close' else indicator_line_style
+            trace_opacity = 1 if col == 'close' else indicator_opacity  # full opacity for 'close', custom for others
+
+            fig.add_trace(go.Scatter(
+                x=df.index, 
+                y=trend_data[col], 
+                mode='lines', 
+                name=legend_name, 
+                line=line_style,  # Apply the customized style here
+                opacity=trace_opacity  # setting the opacity at the trace level
+            ))  # No row/col references here
+        
+        if st.session_state.get('log_scale', True):
+            fig.update_yaxes(type="log")
+
+
+    # Update layout
+    fig.update_layout(
+        height=total_fig_height, 
+        width=1000, 
+        # make this if statement within the string definition
+        # if st.session_state.selected_symbol is not None:
+            # human_readable_freq = get_human_readable_freq(st.session_state.selected_freq)
+            # graph_name_placeholder.write(f"💲 {st.session_state.selected_symbol} - {human_readable_freq}")
+        #
+        title_text=(f"💲 {st.session_state.selected_symbol} - {get_human_readable_freq(st.session_state.selected_freq)}") if (st.session_state.selected_symbol is not None) else None
+    )
+
+    # Display the figure
+    placeholder.plotly_chart(fig, use_container_width=True)
 
 
 def bots_page(engine):
     st.title("🤖 Bots")
+    # Create tabs for in-page navigation
+    tab1, tab2 = st.tabs(["Visualize Backtest", "Compare Bots"])
 
-    # Check if it's the first load of the page
-    if 'first_load' not in st.session_state:
-        st.session_state.bots_page_first_load = True
+    with tab1:  # This will contain your existing layout
 
-    with st.form(key='bot_selection_form'):
-        selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0)
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_begin_date = st.date_input("Select backtest start date:",
-                                                value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
-        with col2:
-            selected_end_date = st.date_input("Select backtest end date:",
-                                              value=datetime.today().date()+timedelta(days=1))
-        submit_button = st.form_submit_button(label='Update Backtest')
+        # Check if it's the first load of the page
+        if 'first_load' not in st.session_state:
+            st.session_state.bots_page_first_load = True
 
-    # Determine if the form should be processed (either first load or submit button pressed)
-    if st.session_state.bots_page_first_load or submit_button:
-        # Set first load to False after processing
-        st.session_state.bots_page_first_load = False
-
-        st.subheader("Bot info:")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            with st.expander("Show bot info"):
-                st.write(f"Bot Name: {selected_bot}")
-                st.write(f"Traded Market: {st.session_state.bots_data_dict[selected_bot]['symbol']} - Binance")
-                st.write(f"Training Beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
-                st.write(f"Training End: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
-
-        update_bot_data(engine, selected_bot)
-
-        current_bot_data = st.session_state.bots_data_dict[selected_bot]["data"]
-        current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
-        current_bot_end = current_bot_data["timestamp"].max()
-        current_bot_symbol = current_bot_data["symbol"].unique()[0]
-
-        fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
-
-        processed_bot_data = current_bot_data[["timestamp","position"]]
-
-        processed_bot_data.set_index("timestamp", inplace=True)
-
-
-        bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
-        bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
-        bot_openprice_data = bot_openprice_data.resample(f"1H").first()
-        processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
-        processed_bot_data["position"].ffill(inplace=True)
-        processed_bot_data.dropna(inplace=True)
-        processed_bot_data["entries"] = processed_bot_data["position"] == 1
-
-        processed_bot_data = processed_bot_data[selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(selected_end_date))]
-
-
-        # Portfolio creation code remains unchanged
-        pf = vbt.Portfolio.from_signals(
-            processed_bot_data["open"],
-            processed_bot_data["entries"],
-            ~processed_bot_data["entries"],
-            init_cash=100,
-            freq="1H",
-        )
-
-        # Generate portfolio statistics
-        pf_stats = pf.stats()
-
-        # Convert all values in pf_stats to strings
-        pf_stats_str = pf_stats.astype(str)
-
-        st.subheader("Backtest info:")
-
-        # Collapsible section
-        with st.expander("Show backtest info"):
-            # Set the name of the stats object (if applicable)
-            pf_stats_str.name = selected_bot  # Assuming 'selected_bot' is defined
-
-            # Create two columns for layout
+        with st.form(key='bot_selection_form'):
+            selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0)
             col1, col2 = st.columns(2)
+            with col1:
+                selected_begin_date = st.date_input("Select backtest start date:",
+                                                    value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
+            with col2:
+                selected_end_date = st.date_input("Select backtest end date:",
+                                                value=datetime.today().date()+timedelta(days=1))
+            submit_button = st.form_submit_button(label='Update Backtest')
 
-            # Convert the Series to a DataFrame for better display as a table
-            # We use 'name' to set the header for the value column
-            pf_stats_df = pf_stats_str.to_frame(name='Value')
+        # Determine if the form should be processed (either first load or submit button pressed)
+        if st.session_state.bots_page_first_load or submit_button:
+            # Set first load to False after processing
+            st.session_state.bots_page_first_load = False
 
-            # Display the stats in the first column as a table without the index
-            col1.table(pf_stats_df)
-        
-        st.subheader("Backtest visualization:")
+            st.subheader("Bot info:")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                with st.expander("Show bot info"):
+                    st.write(f"Bot Name: {selected_bot}")
+                    st.write(f"Traded Market: {st.session_state.bots_data_dict[selected_bot]['symbol']} - Binance")
+                    st.write(f"Training Beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
+                    st.write(f"Training End: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
 
-        with st.expander("Show backtest visualization"):
-            st.plotly_chart(pf.plot(subplots = [
-                "trades",
-                "trade_pnl",
-                "cum_returns",
-                "underwater",
-                "net_exposure",
-                ]), use_container_width=True)
-        
-        st.markdown("---")
+            update_bot_data(engine, selected_bot)
+
+            current_bot_data = st.session_state.bots_data_dict[selected_bot]["data"]
+            current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
+            current_bot_end = current_bot_data["timestamp"].max()
+            current_bot_symbol = st.session_state.bots_data_dict[selected_bot]["symbol"]
+
+            fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
+
+            processed_bot_data = current_bot_data[["timestamp","position"]]
+
+            processed_bot_data.set_index("timestamp", inplace=True)
+
+
+            bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
+            bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
+            bot_openprice_data = bot_openprice_data.resample(f"1H").first()
+            processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
+            processed_bot_data["position"].ffill(inplace=True)
+            processed_bot_data.dropna(inplace=True)
+            processed_bot_data["entries"] = processed_bot_data["position"] == 1
+
+            processed_bot_data = processed_bot_data[selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(selected_end_date))]
+
+
+            # Portfolio creation code remains unchanged
+            pf = vbt.Portfolio.from_signals(
+                processed_bot_data["open"],
+                processed_bot_data["entries"],
+                ~processed_bot_data["entries"],
+                init_cash=100,
+                freq="1H",
+            )
+
+            # Generate portfolio statistics
+            pf_stats = pf.stats()
+
+            # Convert all values in pf_stats to strings
+            pf_stats_str = pf_stats.astype(str)
+
+            st.subheader("Backtest info:")
+
+            # Collapsible section
+            with st.expander("Show backtest info"):
+                # Set the name of the stats object (if applicable)
+                pf_stats_str.name = selected_bot  # Assuming 'selected_bot' is defined
+
+                # Create two columns for layout
+                col1, col2 = st.columns(2)
+
+                # Convert the Series to a DataFrame for better display as a table
+                # We use 'name' to set the header for the value column
+                pf_stats_df = pf_stats_str.to_frame(name='Value')
+
+                # Display the stats in the first column as a table without the index
+                col1.table(pf_stats_df)
+            
+            st.subheader("Backtest visualization:")
+
+            with st.expander("Show backtest visualization", expanded=True):
+                st.plotly_chart(pf.plot(subplots = [
+                    "trades",
+                    "trade_pnl",
+                    "cum_returns",
+                    "underwater",
+                    "net_exposure",
+                    ]), use_container_width=True)
+            
+            st.markdown("---")
+
+    with tab2:
+        st.write("Content for the new tab will go here.")
+        st.write(st.session_state)
 
 
 def time_filtered_returns(engine):
@@ -693,9 +614,8 @@ def time_filtered_returns(engine):
 def get_pages(session_state):
     
     return {
-        "📈 Market Prices": (prices_page_desktop if session_state.version == 'Desktop' else prices_page_mobile),
         "🤖 Bots": bots_page,
-        "📊 Indicators": indicators_page,
+        "📈 Market Prices": prices_page_desktop,
         "🕵️‍♂️ Filtered Returns Analysis": time_filtered_returns,
     }
 

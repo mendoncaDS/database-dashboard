@@ -14,10 +14,10 @@ from constants import MIN_DATETIME, FREQUENCY_MAPPING
 
 # ---------------------- Database Utility Functions ----------------------
 
-def get_last_timestamp(symbol, freq, engine):
+def get_last_timestamp(symbol, engine):
     with engine.begin() as connection:
-        sql_query = "SELECT timestamp FROM market_data WHERE symbol = :symbol AND frequency = :freq ORDER BY timestamp DESC LIMIT 1;"
-        result = connection.execute(text(sql_query),{"symbol":symbol,"freq":freq})
+        sql_query = "SELECT timestamp FROM market_data WHERE symbol = :symbol ORDER BY timestamp DESC LIMIT 1;"
+        result = connection.execute(text(sql_query),{"symbol":symbol})
         last_timestamp = result.scalar()
     return last_timestamp
 
@@ -35,7 +35,7 @@ def load_symbol_data(symbol, start_datetime, end_datetime, engine):
 
     with engine.connect() as connection:
         values = {"symbol": symbol, "start_datetime": start_datetime, "end": end_datetime}
-        query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND frequency = '1m' AND timestamp >= :start_datetime AND timestamp <= :end")
+        query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND timestamp >= :start_datetime AND timestamp <= :end")
         df = pd.read_sql_query(query, connection, params=values)
 
         df.set_index('timestamp', inplace=True)
@@ -58,7 +58,7 @@ def load_symbol_data(symbol, start_datetime, end_datetime, engine):
 
 def unique_symbol_freqs(engine):
     with engine.connect() as connection:
-        query = text("SELECT DISTINCT symbol, frequency FROM market_data;")
+        query = text("SELECT DISTINCT symbol FROM market_data;")
         result = connection.execute(query)
         unique_combinations = result.fetchall()
     return unique_combinations
@@ -103,7 +103,7 @@ def update_bot_data(engine, bot_name):
             # If the database has newer records, retrieve them
             with engine.connect() as connection:
                 query = text("""
-                    SELECT timestamp, position, symbol FROM bots 
+                    SELECT timestamp, position FROM bots 
                     WHERE bot_name = :bot_name AND timestamp > :latest_local_timestamp
                 """)
                 new_records = pd.read_sql(query, connection, params={"bot_name": bot_name, "latest_local_timestamp": latest_local_timestamp})
@@ -116,7 +116,7 @@ def update_bot_data(engine, bot_name):
     else:
         # If no local data exists, retrieve all data for this bot from the database
         with engine.connect() as connection:
-            query = text("SELECT timestamp, symbol, position FROM bots WHERE bot_name = :bot_name")
+            query = text("SELECT timestamp, position FROM bots WHERE bot_name = :bot_name")
             all_records = pd.read_sql(query, connection, params={"bot_name": bot_name})
 
         # Save the data to the session state
@@ -225,7 +225,7 @@ def resample_data(data, freq):
     else:
         return resampled
 
-def fetch_and_plot_data(graph_placeholder, selected_datetime, end_datetime, engine):
+def fetch_and_plot_data(selected_datetime, end_datetime, engine):
     # Ensure the selected_datetime is timezone-aware and in UTC
     if selected_datetime.tzinfo is None or selected_datetime.tzinfo.utcoffset(selected_datetime) is not None:
         selected_datetime = selected_datetime.replace(tzinfo=pytz.UTC)
@@ -237,7 +237,7 @@ def fetch_and_plot_data(graph_placeholder, selected_datetime, end_datetime, engi
     symbol = st.session_state.selected_symbol
 
     # Fetch the last timestamp from the database for this symbol
-    last_available_timestamp = get_last_timestamp(symbol, "1m", engine)
+    last_available_timestamp = get_last_timestamp(symbol, engine)
 
     # If there's no local data for this symbol, initialize it by fetching from the database
     if symbol not in st.session_state.dataframes_dict:
@@ -286,7 +286,6 @@ def fetch_and_plot_data(graph_placeholder, selected_datetime, end_datetime, engi
             return
         
         st.session_state.graph_data = resampled_data  # Update the data in the session state
-        plot_in_placeholder(st.session_state.graph_data["close"], graph_placeholder)  # Re-plot with new data
     else:
         st.warning("Please select an older start date.")
 

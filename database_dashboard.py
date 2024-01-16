@@ -70,8 +70,6 @@ def initialize_session_state():
         st.session_state.end_datetime = datetime.combine(default_end_datetime, time(0, 0)).replace(tzinfo=pytz.UTC)
     if 'log_scale' not in st.session_state:
         st.session_state.log_scale = True
-    if 'bots_data' not in st.session_state:
-        st.session_state.bots_data = {}
 
     # Initialize a specific dictionary for this page's selections if it doesn't exist
     if 'time_filter_selections' not in st.session_state:
@@ -94,16 +92,6 @@ def main():
         page_icon="graph-emoji.png",
         layout="wide",
     )
-
-    # Only show 'Choose a version' prompt on main page if version hasn't been selected or is 'Select version'
-    if st.session_state.version == '':
-        st.write("Are you on Desktop or Mobile?")
-        version = st.selectbox('Choose a version:', ['', 'Desktop', 'Mobile'], index=0)
-        if version in ['Desktop', 'Mobile']:
-            st.session_state.version = version
-            st.rerun()
-        else:
-            st.stop()
 
     # Get the pages object
     pages = get_pages(st.session_state)
