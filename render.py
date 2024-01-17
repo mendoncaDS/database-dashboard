@@ -94,6 +94,8 @@ def prices_page_desktop(engine):
         st.session_state.log_scale = log_scale
 
         fetch_and_plot_data(start_datetime, end_datetime, engine)
+        if submit_button:
+            st.rerun()
 
 
     # Dropdown for indicator selection
@@ -359,29 +361,31 @@ def plot_trends_and_oscillators(df, placeholder):
 
 def bots_page(engine):
     st.title("🤖 Bots")
+
     # Create tabs for in-page navigation
     tab1, tab2 = st.tabs(["Visualize Backtest", "Compare Bots"])
 
-    with tab1:  # This will contain your existing layout
-
-        # Check if it's the first load of the page
-        if 'first_load' not in st.session_state:
+    with tab1:
+        # Initialize first load flag in session state
+        if 'bots_page_first_load' not in st.session_state:
+            selected_bot = st.session_state.unique_bots_list[0]
             st.session_state.bots_page_first_load = True
+            # Set default start date on first load
+            st.session_state.selected_begin_date = datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d")
 
         with st.form(key='bot_selection_form'):
             selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0)
+            
             col1, col2 = st.columns(2)
             with col1:
-                selected_begin_date = st.date_input("Select backtest start date:",
-                                                    value=datetime.strptime(st.session_state.bots_data_dict[selected_bot]["bt_end_date"], "%Y-%m-%d"))
+                # Use session state to retain start date value after first load
+                st.session_state.selected_begin_date = st.date_input("Select backtest start date:", value=st.session_state.selected_begin_date)
             with col2:
-                selected_end_date = st.date_input("Select backtest end date:",
-                                                value=datetime.today().date()+timedelta(days=1))
+                # For end date, always use the current or selected date
+                st.session_state.selected_end_date = st.date_input("Select backtest end date:", value=datetime.today().date()+timedelta(days=1))
             submit_button = st.form_submit_button(label='Update Backtest')
 
-        # Determine if the form should be processed (either first load or submit button pressed)
         if st.session_state.bots_page_first_load or submit_button:
-            # Set first load to False after processing
             st.session_state.bots_page_first_load = False
 
             st.subheader("Bot info:")
@@ -416,7 +420,7 @@ def bots_page(engine):
             processed_bot_data.dropna(inplace=True)
             processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-            processed_bot_data = processed_bot_data[selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(selected_end_date))]
+            processed_bot_data = processed_bot_data[st.session_state.selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(st.session_state.selected_end_date))]
 
 
             # Portfolio creation code remains unchanged
@@ -465,8 +469,92 @@ def bots_page(engine):
             st.markdown("---")
 
     with tab2:
-        st.write("Content for the new tab will go here.")
-        st.write(st.session_state)
+        st.subheader("Bot Comparison")
+
+        with st.form(key='bot_comparison_form'):
+            col1, col2 = st.columns(2)
+            with col1:
+                bot_a = st.selectbox("Select Bot A:", st.session_state.unique_bots_list, index=0)
+                start_date = st.date_input("Select start date for comparison:", value=datetime.today().date() - timedelta(days=180))
+            with col2:
+                bot_b = st.selectbox("Select Bot B:", st.session_state.unique_bots_list, index=1)
+                end_date = st.date_input("Select end date for comparison:", value=datetime.today().date())
+
+            submit_button = st.form_submit_button(label='Run Comparison')
+
+        if submit_button:
+            # Process Bot A
+            bot_a_data = process_and_backtest_bot(engine, bot_a, start_date, end_date)
+            # Process Bot B
+            bot_b_data = process_and_backtest_bot(engine, bot_b, start_date, end_date)
+
+            bot_a_start = bot_a_data.index.min()
+            bot_b_start = bot_b_data.index.min()
+
+            start_date = max(bot_a_start, bot_b_start)
+
+            bot_a_data = bot_a_data[start_date:]
+            bot_b_data = bot_b_data[start_date:]
+
+            pf_a = vbt.Portfolio.from_signals(
+                bot_a_data["open"],
+                bot_a_data["entries"],
+                ~bot_a_data["entries"],
+                init_cash=100,
+                freq="1H",
+            )
+            pf_b = vbt.Portfolio.from_signals(
+                bot_b_data["open"],
+                bot_b_data["entries"],
+                ~bot_b_data["entries"],
+                init_cash=100,
+                freq="1H",
+            )
+
+            pf_stats_a = pf_a.stats()
+            pf_stats_b = pf_b.stats()
+
+            merged_df = pd.concat([pf_stats_a, pf_stats_b], axis=1)
+            merged_df.columns = [bot_a, bot_b]
+            
+            # Create two columns for displaying backtest results
+            col1, col2 = st.columns(2)
+            with col1:
+                st.table(merged_df)
+
+
+def process_and_backtest_bot(engine, bot_name, start_date, end_date):
+    update_bot_data(engine, bot_name)
+
+    current_bot_data = st.session_state.bots_data_dict[bot_name]["data"]
+    current_bot_start = current_bot_data["timestamp"].min().replace(tzinfo=pytz.UTC)
+    current_bot_end = current_bot_data["timestamp"].max()
+    current_bot_symbol = st.session_state.bots_data_dict[bot_name]["symbol"]
+
+    fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
+
+    processed_bot_data = current_bot_data[["timestamp","position"]]
+
+    processed_bot_data.set_index("timestamp", inplace=True)
+
+
+    bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
+    bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
+    bot_openprice_data = bot_openprice_data.resample(f"1H").first()
+    processed_bot_data = pd.concat([processed_bot_data, bot_openprice_data], axis=1)
+    processed_bot_data["position"].ffill(inplace=True)
+    processed_bot_data.dropna(inplace=True)
+    processed_bot_data["entries"] = processed_bot_data["position"] == 1
+
+    processed_bot_data = processed_bot_data[start_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(end_date))]
+
+    return processed_bot_data
+
+
+    # Portfolio creation code remains unchanged
+
+
+    return pf
 
 
 def time_filtered_returns(engine):
