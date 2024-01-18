@@ -90,15 +90,21 @@ def main():
     initialize_session_state()
 
     st.set_page_config(
-        page_title="Binance Dashboard",
-        page_icon="graph-emoji.png",
+        page_title="NGUSTRAT",
+        page_icon="NGUSTRAT.png",
         layout="wide",
     )
 
     # Get the pages object
     pages = get_pages(st.session_state)
 
-    st.sidebar.title("Navigation")
+    # Add image to sidebar
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        st.sidebar.image("NGUSTRAT.png", use_column_width=True)
+    with col2:
+        st.sidebar.title("NGUSTRAT")
+
     page = st.sidebar.radio("Go to", list(pages.keys()))
     st.sidebar.markdown("<hr/>", unsafe_allow_html=True)
     pages[page](st.session_state.engine)

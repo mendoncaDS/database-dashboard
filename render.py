@@ -50,7 +50,7 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
 
 # --------------- Page Rendering Functions ---------------
 
-def prices_page_desktop(engine):
+def prices_page(engine):
     st.title("📈 Market Visualization")
 
     # Placeholder for the graph
@@ -366,6 +366,9 @@ def bots_page(engine):
     tab1, tab2 = st.tabs(["Visualize Backtest", "Compare Bots"])
 
     with tab1:
+        if 'portfolio' not in st.session_state:
+            st.session_state.pf = None  # Initialize if not present
+
         # Initialize first load flag in session state
         if 'bots_page_first_load' not in st.session_state:
             selected_bot = st.session_state.unique_bots_list[0]
@@ -375,7 +378,7 @@ def bots_page(engine):
 
         with st.form(key='bot_selection_form'):
             selected_bot = st.selectbox("Select a bot:", st.session_state.unique_bots_list, index=0)
-            
+
             col1, col2 = st.columns(2)
             with col1:
                 # Use session state to retain start date value after first load
@@ -385,18 +388,9 @@ def bots_page(engine):
                 st.session_state.selected_end_date = st.date_input("Select backtest end date:", value=datetime.today().date()+timedelta(days=1))
             submit_button = st.form_submit_button(label='Update Backtest')
 
-        if st.session_state.bots_page_first_load or submit_button:
+        # If there is no portfolio in session state or submit button is pressed
+        if st.session_state.pf is None or submit_button:
             st.session_state.bots_page_first_load = False
-
-            st.subheader("Bot info:")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                with st.expander("Show bot info"):
-                    st.write(f"Bot Name: {selected_bot}")
-                    st.write(f"Traded Market: {st.session_state.bots_data_dict[selected_bot]['symbol']} - Binance")
-                    st.write(f"Training Beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
-                    st.write(f"Training End: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
 
             update_bot_data(engine, selected_bot)
 
@@ -405,12 +399,10 @@ def bots_page(engine):
             current_bot_end = current_bot_data["timestamp"].max()
             current_bot_symbol = st.session_state.bots_data_dict[selected_bot]["symbol"]
 
-            fetch_missing_price_data(engine,current_bot_symbol,current_bot_start)
+            fetch_missing_price_data(engine, current_bot_symbol, current_bot_start)
 
-            processed_bot_data = current_bot_data[["timestamp","position"]]
-
+            processed_bot_data = current_bot_data[["timestamp", "position"]]
             processed_bot_data.set_index("timestamp", inplace=True)
-
 
             bot_openprice_data = st.session_state.dataframes_dict[current_bot_symbol][current_bot_start:]["open"]
             bot_openprice_data.index = bot_openprice_data.index.tz_localize(None)
@@ -420,11 +412,10 @@ def bots_page(engine):
             processed_bot_data.dropna(inplace=True)
             processed_bot_data["entries"] = processed_bot_data["position"] == 1
 
-            processed_bot_data = processed_bot_data[st.session_state.selected_begin_date:min(current_bot_end.to_pydatetime(),pd.to_datetime(st.session_state.selected_end_date))]
+            processed_bot_data = processed_bot_data[st.session_state.selected_begin_date:min(current_bot_end.to_pydatetime(), pd.to_datetime(st.session_state.selected_end_date))]
 
-
-            # Portfolio creation code remains unchanged
-            pf = vbt.Portfolio.from_signals(
+            # Portfolio creation
+            st.session_state.pf = vbt.Portfolio.from_signals(
                 processed_bot_data["open"],
                 processed_bot_data["entries"],
                 ~processed_bot_data["entries"],
@@ -432,95 +423,87 @@ def bots_page(engine):
                 freq="1H",
             )
 
-            # Generate portfolio statistics
-            pf_stats = pf.stats()
-
-            # Convert all values in pf_stats to strings
+        # Always try to render the visualization from session state portfolio
+        if st.session_state.pf:
+            pf_stats = st.session_state.pf.stats()
             pf_stats_str = pf_stats.astype(str)
 
-            st.subheader("Backtest info:")
-
-            # Collapsible section
-            with st.expander("Show backtest info"):
-                # Set the name of the stats object (if applicable)
-                pf_stats_str.name = selected_bot  # Assuming 'selected_bot' is defined
-
-                # Create two columns for layout
+            st.subheader("Backtest Information")
+            with st.expander("Show Backtest Info"):
                 col1, col2 = st.columns(2)
+                with col1:
+                    pf_stats_str.name = selected_bot
+                    pf_stats_df = pf_stats_str.to_frame(name='Value')
+                    st.table(pf_stats_df)
+                with col2:
+                    st.write(f"Bot Name: {selected_bot}")
+                    st.write(f"Traded Market: {st.session_state.bots_data_dict[selected_bot]['symbol']} - Binance")
+                    st.write(f"Training Beginning: {st.session_state.bots_data_dict[selected_bot]['bt_begin_date']}")
+                    st.write(f"Training End: {st.session_state.bots_data_dict[selected_bot]['bt_end_date']}")
 
-                # Convert the Series to a DataFrame for better display as a table
-                # We use 'name' to set the header for the value column
-                pf_stats_df = pf_stats_str.to_frame(name='Value')
-
-                # Display the stats in the first column as a table without the index
-                col1.table(pf_stats_df)
-            
-            st.subheader("Backtest visualization:")
-
+            st.subheader("Backtest visualization")
             with st.expander("Show backtest visualization", expanded=True):
-                st.plotly_chart(pf.plot(subplots = [
+                st.plotly_chart(st.session_state.pf.plot(subplots=[
                     "trades",
                     "trade_pnl",
                     "cum_returns",
                     "underwater",
                     "net_exposure",
-                    ]), use_container_width=True)
-            
+                ]), use_container_width=True)
+
             st.markdown("---")
 
     with tab2:
+        if 'pf_list' not in st.session_state:
+            st.session_state.pf_list = []  # Initialize if not present
+            
         st.subheader("Bot Comparison")
 
         with st.form(key='bot_comparison_form'):
+            # Multi-selector for bots
+            selected_bots = st.multiselect("Select Bots:", st.session_state.unique_bots_list, default=[st.session_state.unique_bots_list[0], st.session_state.unique_bots_list[1]])
             col1, col2 = st.columns(2)
             with col1:
-                bot_a = st.selectbox("Select Bot A:", st.session_state.unique_bots_list, index=0)
                 start_date = st.date_input("Select start date for comparison:", value=datetime.today().date() - timedelta(days=180))
             with col2:
-                bot_b = st.selectbox("Select Bot B:", st.session_state.unique_bots_list, index=1)
                 end_date = st.date_input("Select end date for comparison:", value=datetime.today().date())
-
             submit_button = st.form_submit_button(label='Run Comparison')
 
+
         if submit_button:
-            # Process Bot A
-            bot_a_data = process_and_backtest_bot(engine, bot_a, start_date, end_date)
-            # Process Bot B
-            bot_b_data = process_and_backtest_bot(engine, bot_b, start_date, end_date)
+            if len(selected_bots) < 2:
+                st.warning("Please select at least two bots for comparison.")
+            else:
+                bot_data_list = []
+                st.session_state.pf_list = []  # Reset pf_list in session state
+                for bot in selected_bots:
+                    bot_data = process_and_backtest_bot(engine, bot, start_date, end_date)
+                    bot_start = bot_data.index.min()
+                    bot_data_list.append((bot, bot_data, bot_start))
 
-            bot_a_start = bot_a_data.index.min()
-            bot_b_start = bot_b_data.index.min()
+                # Find the latest start date among all bots
+                latest_start_date = max(bot_start for _, _, bot_start in bot_data_list)
 
-            start_date = max(bot_a_start, bot_b_start)
+                # Adjust data and create portfolios
+                for bot, bot_data, _ in bot_data_list:
+                    adjusted_bot_data = bot_data[latest_start_date:]
+                    pf = vbt.Portfolio.from_signals(
+                        adjusted_bot_data["open"],
+                        adjusted_bot_data["entries"],
+                        ~adjusted_bot_data["entries"],
+                        init_cash=100,
+                        freq="1H",
+                    )
+                    st.session_state.pf_list.append((bot, pf))
 
-            bot_a_data = bot_a_data[start_date:]
-            bot_b_data = bot_b_data[start_date:]
-
-            pf_a = vbt.Portfolio.from_signals(
-                bot_a_data["open"],
-                bot_a_data["entries"],
-                ~bot_a_data["entries"],
-                init_cash=100,
-                freq="1H",
-            )
-            pf_b = vbt.Portfolio.from_signals(
-                bot_b_data["open"],
-                bot_b_data["entries"],
-                ~bot_b_data["entries"],
-                init_cash=100,
-                freq="1H",
-            )
-
-            pf_stats_a = pf_a.stats()
-            pf_stats_b = pf_b.stats()
-
-            merged_df = pd.concat([pf_stats_a, pf_stats_b], axis=1)
-            merged_df.columns = [bot_a, bot_b]
+        # Use pf_list from session state for subsequent operations
+        if st.session_state.pf_list:
+            # Merge the stats of all bots from pf_list in session state
+            merged_df = pd.concat([pf.stats() for _, pf in st.session_state.pf_list], axis=1)
+            merged_df.columns = [bot for bot, _ in st.session_state.pf_list]
             
-            # Create two columns for displaying backtest results
-            col1, col2 = st.columns(2)
-            with col1:
-                st.table(merged_df)
+            # Display backtest results
+            st.table(merged_df)
 
 
 def process_and_backtest_bot(engine, bot_name, start_date, end_date):
@@ -703,7 +686,7 @@ def get_pages(session_state):
     
     return {
         "🤖 Bots": bots_page,
-        "📈 Market Prices": prices_page_desktop,
+        "📈 Market Prices": prices_page,
         "🕵️‍♂️ Filtered Returns Analysis": time_filtered_returns,
     }
 
