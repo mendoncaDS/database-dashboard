@@ -98,12 +98,28 @@ def main():
     # Get the pages object
     pages = get_pages(st.session_state)
 
-    # Add image to sidebar
-    col1, col2 = st.sidebar.columns(2)
-    with col1:
-        st.sidebar.image("NGUSTRAT.png", use_column_width=True)
-    with col2:
-        st.sidebar.title("NGUSTRAT")
+    st.sidebar.image("NGUSTRAT.png")
+
+    # Stylish title with custom CSS
+    st.sidebar.markdown("""
+        <style>
+        .title {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .title h1 {
+            font-size: 32px; /* Adjust font size here */
+            color: #030537; /* Font color */
+            font-family: 'Arial Black', Gadget, sans-serif; /* Custom font for a bolder appearance */
+            font-weight: bold; /* Make the font bold */
+            margin-top: 0;
+        }
+        </style>
+        <div class="title">
+            <h1>NGUSTRAT</h1>
+        </div>
+        """, unsafe_allow_html=True)
 
     page = st.sidebar.radio("Go to", list(pages.keys()))
     st.sidebar.markdown("<hr/>", unsafe_allow_html=True)
