@@ -61,6 +61,10 @@ def prices_page(engine):
         df = process_indicators(st.session_state.graph_data, st.session_state.indicators_list)
         plot_trends_and_oscillators(df, graph_placeholder)  # Call the plot function
 
+    # Initialize the indicators list if it doesn't exist
+    if not hasattr(st.session_state, "indicators_list"):
+        st.session_state.indicators_list = []
+
     # Data fetching form
     with st.form(key='fetch_from_database_form'):
         st.session_state.price_plotted = False
@@ -97,13 +101,8 @@ def prices_page(engine):
         if submit_button:
             st.rerun()
 
-
     # Dropdown for indicator selection
     available_indicators = ["SMA", "EMA", "WMA", "HMA", "DEMA", "TEMA", "TRIMA", "KAMA", "ZLMA", "ALMA", "BBANDS", "RSI", "STOCH", "MACD"]
-
-    # Initialize the indicators list if it doesn't exist
-    if not hasattr(st.session_state, "indicators_list"):
-        st.session_state.indicators_list = []
 
     # Create legend identifiers for the indicators
     legend_identifiers = []

@@ -1,5 +1,6 @@
 
 # External Library Imports
+import time
 import pytz
 
 import pandas as pd
@@ -15,11 +16,19 @@ from constants import MIN_DATETIME, FREQUENCY_MAPPING
 # ---------------------- Database Utility Functions ----------------------
 
 def get_last_timestamp(symbol, engine):
-    with engine.begin() as connection:
-        sql_query = "SELECT timestamp FROM market_data WHERE symbol = :symbol ORDER BY timestamp DESC LIMIT 1;"
-        result = connection.execute(text(sql_query),{"symbol":symbol})
-        last_timestamp = result.scalar()
-    return last_timestamp
+    retries = 4
+    for attempt in range(retries):
+        try:
+            with engine.begin() as connection:
+                sql_query = "SELECT timestamp FROM market_data WHERE symbol = :symbol ORDER BY timestamp DESC LIMIT 1;"
+                result = connection.execute(text(sql_query), {"symbol": symbol})
+                last_timestamp = result.scalar()
+            return last_timestamp
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
 
 
 def load_symbol_data(symbol, start_datetime, end_datetime, engine):
@@ -33,17 +42,23 @@ def load_symbol_data(symbol, start_datetime, end_datetime, engine):
 
     print(f"Loading data for {symbol} from {start_datetime} to {end_datetime}")
 
-    with engine.connect() as connection:
-        values = {"symbol": symbol, "start_datetime": start_datetime, "end": end_datetime}
-        query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND timestamp >= :start_datetime AND timestamp <= :end")
-        df = pd.read_sql_query(query, connection, params=values)
-
-        df.set_index('timestamp', inplace=True)
-        df.sort_index(inplace=True)
-        df.index = df.index.tz_localize('UTC')
-
-        # Save the loaded dataframe to st.session_state.dataframes_dict for future use
-        st.session_state.dataframes_dict[symbol] = df
+    retries = 4
+    for attempt in range(retries):
+        try:
+            with engine.connect() as connection:
+                values = {"symbol": symbol, "start_datetime": start_datetime, "end": end_datetime}
+                query = text(f"SELECT timestamp, open, high, low, close, volume FROM market_data WHERE symbol = :symbol AND timestamp >= :start_datetime AND timestamp <= :end")
+                df = pd.read_sql_query(query, connection, params=values)
+                df.set_index('timestamp', inplace=True)
+                df.sort_index(inplace=True)
+                df.index = df.index.tz_localize('UTC')
+                st.session_state.dataframes_dict[symbol] = df
+            return df
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
 
     # Slice the dataframe using the start and end timestamps
     df = df.loc[start_datetime:end_datetime]
@@ -57,18 +72,34 @@ def load_symbol_data(symbol, start_datetime, end_datetime, engine):
 
 
 def unique_symbol_freqs(engine):
-    with engine.connect() as connection:
-        query = text("SELECT DISTINCT symbol FROM market_data;")
-        result = connection.execute(query)
-        unique_combinations = result.fetchall()
-    return unique_combinations
+    retries = 4
+    for attempt in range(retries):
+        try:
+            with engine.connect() as connection:
+                query = text("SELECT DISTINCT symbol FROM market_data;")
+                result = connection.execute(query)
+                unique_combinations = result.fetchall()
+            return unique_combinations
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
 
 def unique_bots(engine):
-    with engine.connect() as connection:
-        query = text("SELECT array_agg(DISTINCT bot_name) as bot_names FROM bots;")
-        result = connection.execute(query)
-        unique = result.scalar()
-    return unique
+    retries = 4
+    for attempt in range(retries):
+        try:
+            with engine.connect() as connection:
+                query = text("SELECT array_agg(DISTINCT bot_name) as bot_names FROM bots;")
+                result = connection.execute(query)
+                unique = result.scalar()
+            return unique
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                raise
 
 
 
@@ -94,19 +125,38 @@ def update_bot_data(engine, bot_name):
         
         # Query the database for the most recent timestamp for this bot
         with engine.connect() as connection:
-            query = text("SELECT MAX(timestamp) AS latest_timestamp FROM bots WHERE bot_name = :bot_name")
-            result = connection.execute(query, {"bot_name": bot_name}).fetchone()
-            latest_db_timestamp = result[0]
+            retries = 4
+            for attempt in range(retries):
+                try:
+                    with engine.connect() as connection:
+                        query = text("SELECT MAX(timestamp) AS latest_timestamp FROM bots WHERE bot_name = :bot_name")
+                        result = connection.execute(query, {"bot_name": bot_name}).fetchone()
+                        latest_db_timestamp = result[0]
+                    return latest_db_timestamp
+                except Exception:
+                    if attempt < retries - 1:
+                        time.sleep(2 ** attempt)
+                    else:
+                        raise
 
         # Compare the timestamps
         if latest_db_timestamp > latest_local_timestamp:
             # If the database has newer records, retrieve them
-            with engine.connect() as connection:
-                query = text("""
-                    SELECT timestamp, position FROM bots 
-                    WHERE bot_name = :bot_name AND timestamp > :latest_local_timestamp
-                """)
-                new_records = pd.read_sql(query, connection, params={"bot_name": bot_name, "latest_local_timestamp": latest_local_timestamp})
+            retries = 4
+            for attempt in range(retries):
+                try:
+                    with engine.connect() as connection:
+                        query = text("""
+                            SELECT timestamp, position FROM bots 
+                            WHERE bot_name = :bot_name AND timestamp > :latest_local_timestamp
+                        """)
+                        new_records = pd.read_sql(query, connection, params={"bot_name": bot_name, "latest_local_timestamp": latest_local_timestamp})
+                    return new_records
+                except Exception:
+                    if attempt < retries - 1:
+                        time.sleep(2 ** attempt)
+                    else:
+                        raise
 
             # updated_data = local_data.append(new_records, ignore_index=True)
             updated_data = pd.concat([local_data, new_records], ignore_index=True)
@@ -115,9 +165,17 @@ def update_bot_data(engine, bot_name):
             st.session_state.bots_data_dict[bot_name]["data"] = updated_data
     else:
         # If no local data exists, retrieve all data for this bot from the database
-        with engine.connect() as connection:
-            query = text("SELECT timestamp, position FROM bots WHERE bot_name = :bot_name")
-            all_records = pd.read_sql(query, connection, params={"bot_name": bot_name})
+        retries = 4
+        for attempt in range(retries):
+            try:
+                with engine.connect() as connection:
+                    query = text("SELECT timestamp, position FROM bots WHERE bot_name = :bot_name")
+                    all_records = pd.read_sql(query, connection, params={"bot_name": bot_name})
+            except Exception:
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    raise
 
         # Save the data to the session state
         st.session_state.bots_data_dict[bot_name]["data"] = all_records

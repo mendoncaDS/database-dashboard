@@ -17,7 +17,7 @@ COPY database_dashboard.py .
 COPY render.py .
 COPY auxiliary.py .
 COPY constants.py .
-COPY graph-emoji.png .
+COPY NGUSTRAT.png .
 
 # Expose the port Streamlit runs on
 EXPOSE 8501
