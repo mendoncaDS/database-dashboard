@@ -398,7 +398,7 @@ def bots_page(engine):
             current_bot_end = current_bot_data["timestamp"].max()
             current_bot_symbol = st.session_state.bots_data_dict[selected_bot]["symbol"]
 
-            fetch_missing_price_data(engine, current_bot_symbol, current_bot_start)
+            fetch_missing_price_data(engine, current_bot_symbol,  pytz.utc.localize(datetime.combine(st.session_state.selected_begin_date, time())))
 
             processed_bot_data = current_bot_data[["timestamp", "position"]]
             processed_bot_data.set_index("timestamp", inplace=True)
