@@ -25,6 +25,7 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
     # before populating variable local_data, check if symbol is in dict's keys
     if symbol not in st.session_state['dataframes_dict']:
         st.session_state['dataframes_dict'][symbol] = load_symbol_data(symbol, start_datetime, datetime.now(pytz.timezone('UTC')), engine).iloc[:-1]
+        print("Fetch missing price DONE")
         return
 
     local_data = st.session_state['dataframes_dict'][symbol]
@@ -37,14 +38,15 @@ def fetch_missing_price_data(engine, symbol, start_datetime):
     if start_datetime < local_min_ts:
         older_data = load_symbol_data(symbol, start_datetime, local_min_ts, engine)
         older_data = older_data.iloc[:-1]
-        st.session_state['dataframes_dict'][symbol] = pd.concat([older_data, local_data])
+        local_data = pd.concat([older_data, local_data])
 
     # Fetch newer data if needed
     if last_available_timestamp > local_max_ts:
         newer_data = load_symbol_data(symbol, local_max_ts, last_available_timestamp, engine)
         newer_data = newer_data.iloc[1:-1]
-        st.session_state['dataframes_dict'][symbol] = pd.concat([local_data, newer_data])
+        local_data = pd.concat([local_data, newer_data])
     
+    st.session_state['dataframes_dict'][symbol] = local_data
     print("Fetch missing price DONE")
 
 
